@@ -1,36 +1,22 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
 
-export default function Home() {
+export default async function Home() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) redirect('/chat');
+
   return (
-    <main className="min-h-screen bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-600 flex flex-col items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 md:p-12 max-w-md w-full text-center">
-        <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-3 tracking-tight">
-          Danyal Bhai
-        </h1>
-        <p className="text-xl md:text-2xl font-medium text-emerald-600 mb-4">
-          Chat with AI in Any Language
-        </p>
-        <p className="text-gray-500 mb-8 text-base leading-relaxed">
-          Sign up and start chatting with AI
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Link
-            href="/signup"
-            className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3 px-8 rounded-xl transition-colors duration-200 text-base"
-          >
-            Sign Up
-          </Link>
-          <Link
-            href="/login"
-            className="border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50 font-semibold py-3 px-8 rounded-xl transition-colors duration-200 text-base"
-          >
-            Login
-          </Link>
-        </div>
+    <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-600 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-2xl md:p-12">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-yellow-600 text-3xl font-black text-white shadow-lg">D</div>
+        <h1 className="mt-5 text-4xl font-bold tracking-tight text-gray-900 md:text-5xl">Danyal Bhai</h1>
+        <p className="mb-4 mt-3 text-xl font-medium text-emerald-600 md:text-2xl">Chat with AI in Any Language</p>
+        <p className="mb-8 text-base leading-relaxed text-gray-500">Sign up and start chatting with AI</p>
+        <div className="flex flex-col justify-center gap-3 sm:flex-row"><Link href="/signup" className="rounded-xl bg-emerald-500 px-8 py-3 font-semibold text-white transition-colors hover:bg-emerald-600">Sign Up</Link><Link href="/login" className="rounded-xl border-2 border-emerald-500 px-8 py-3 font-semibold text-emerald-600 transition-colors hover:bg-emerald-50">Login</Link></div>
       </div>
-      <footer className="mt-8 text-white/80 text-sm">
-        © 2025 Danyal Bhai
-      </footer>
+      <footer className="mt-8 text-sm text-white/80">© 2025 Danyal Bhai</footer>
     </main>
   );
 }
