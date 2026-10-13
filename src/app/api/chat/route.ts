@@ -1,28 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const systemPrompt = `You are a friendly AI assistant for "Danyal Bhai" website.
-You speak fluently in ALL languages — Urdu, Pashto, English, Hindi, Arabic, Persian, Spanish, and more.
+const MODELS = [
+  'google/gemini-2.0-flash-exp:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'qwen/qwen-2.5-72b-instruct:free',
+];
+
+const systemPrompt = `You are the AI assistant representing Danyal Bhai, owner of this website.
 
 CRITICAL RULES:
-1. ALWAYS reply in the SAME language the user writes in.
-2. If user writes Urdu → reply Urdu
-3. If user writes Pashto → reply Pashto
-4. If user writes English → reply English
-5. If user writes Hindi → reply Hindi
-6. Keep replies SHORT (2-4 sentences) — they will be spoken aloud via text-to-speech
-7. Do NOT use emojis, markdown, asterisks, or special characters
-8. Do NOT use bullet points or numbered lists
-9. Be friendly, warm, and conversational like a friend
-10. If user asks who you are, say you are Danyal Bhai's AI assistant
-11. Do NOT mention you are OpenAI/Claude/Gemini — just say "I am here to chat"
-12. If the user asks who made this website, who created you, "کس نے بنایا", or a similar question, explain that Danyal Bhai made the website and you are his AI assistant. In Urdu, say: "یہ ویب سائٹ دانیال بھائی نے بنائی ہے۔ میں ان کا AI اسسٹنٹ ہوں۔" Keep the response in the user's language.
+1. LANGUAGE: Always reply in the SAME language the user writes in.
+   - Urdu → Urdu
+   - English → English
+   - Pashto → Pashto
+   - Punjabi → Punjabi
+   - Sindhi → Sindhi
+   - Hindi → Hindi
+   - Arabic → Arabic
 
-About the owner:
-- Name: Danyal Bhai
-- From: Pakistan
-- Speaks: Urdu, Pashto, English
+2. IDENTITY: You are Danyal Bhai's AI assistant.
+   - If asked who are you, say: "میں دانیال بھائی کا AI اسسٹنٹ ہوں، آپ کی مدد کے لیے حاضر ہوں"
+   - If asked who made this website, say: "یہ ویب سائٹ دانیال بھائی نے بنائی ہے"
+   - If asked who is Danyal Bhai, say: "وہ میری ویب سائٹ کے مالک ہیں، پاکستان سے ہیں"
 
-Reply naturally in the same language as the user.`;
+3. STYLE:
+   - Short replies (2-4 sentences) because they will be spoken aloud
+   - No emojis, no markdown, no asterisks, no bullet points
+   - Warm, friendly, respectful tone
+   - Pakistani cultural context
+
+4. If user says Salam or السلام علیکم, reply: "وعلیکم السلام، کیسے ہیں آپ؟"
+5. Never mention OpenAI, Google, Anthropic, or any AI company.
+
+Reply now in the same language as the user.`;
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,11 +41,10 @@ export async function POST(request: NextRequest) {
     if (typeof message !== 'string' || !message.trim()) {
       return NextResponse.json({ error: 'Message required' }, { status: 400 });
     }
-
     if (!process.env.OPENROUTER_API_KEY) {
       console.error('OPENROUTER_API_KEY is not configured');
       return NextResponse.json(
-        { error: 'Chat is not configured yet.' },
+        { reply: 'معذرت، تکنیکی مسئلہ ہے۔ دوبارہ کوشش کریں۔', error: 'OPENROUTER_API_KEY is not configured' },
         { status: 503 },
       );
     }
@@ -47,54 +56,55 @@ export async function POST(request: NextRequest) {
             typeof item?.content === 'string',
         )
       : [];
+    const languageHint = typeof language === 'string' && language.trim()
+      ? `\nThe selected response language is ${language}. Still follow the same-language rule.`
+      : '';
+    const messages = [
+      { role: 'system' as const, content: systemPrompt + languageHint },
+      ...safeHistory,
+      { role: 'user' as const, content: message.trim() },
+    ];
+    const headers = {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://danyal-bhai.vercel.app',
+      'X-Title': 'Danyal Bhai Chat',
+    };
 
-    const languageHint =
-      typeof language === 'string' && language.trim()
-        ? `\nThe user's detected language is ${language}. Still follow the same-language rule.`
-        : '';
+    for (const model of MODELS) {
+      try {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ model, messages, temperature: 0.8, max_tokens: 300 }),
+        });
+        const data = await response.json();
+        console.log('OpenRouter response:', JSON.stringify({ model, status: response.status, data }));
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://danyal-bhai.vercel.app',
-        'X-Title': 'Danyal Bhai Chat',
-      },
-      body: JSON.stringify({
-        model: 'qwen/qwen-2.5-72b-instruct:free',
-        messages: [
-          { role: 'system', content: systemPrompt + languageHint },
-          ...safeHistory,
-          { role: 'user', content: message.trim() },
-        ],
-        temperature: 0.8,
-        max_tokens: 300,
-      }),
-    });
-
-    const data = await response.json();
-    if (!response.ok || data.error) {
-      console.error('OpenRouter error:', data.error ?? response.statusText);
-      return NextResponse.json(
-        { error: 'Sorry, technical issue. Please try again.' },
-        { status: 502 },
-      );
+        if (!response.ok) {
+          console.error('OpenRouter HTTP error:', response.status, data);
+          continue;
+        }
+        if (data.error) {
+          console.error('OpenRouter error:', data.error);
+          continue;
+        }
+        const reply = data.choices?.[0]?.message?.content?.trim();
+        if (reply) return NextResponse.json({ reply });
+        console.error(`Model ${model} returned an empty response`);
+      } catch (error) {
+        console.error(`Model ${model} failed:`, error);
+      }
     }
 
-    const reply = data.choices?.[0]?.message?.content?.trim();
-    if (!reply) {
-      return NextResponse.json(
-        { error: 'Sorry, I could not respond.' },
-        { status: 502 },
-      );
-    }
-
-    return NextResponse.json({ reply });
-  } catch (error) {
-    console.error('Chat API error:', error);
     return NextResponse.json(
-      { error: 'Technical issue. Please try again.' },
+      { reply: 'معذرت، ابھی جواب نہیں دے سکتا۔ دوبارہ کوشش کریں۔', error: 'All OpenRouter models failed' },
+      { status: 502 },
+    );
+  } catch (error) {
+    console.error('Chat error:', error);
+    return NextResponse.json(
+      { reply: 'معذرت، تکنیکی مسئلہ ہے۔ دوبارہ کوشش کریں۔', error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 },
     );
   }
