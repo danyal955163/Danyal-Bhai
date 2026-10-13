@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import HomeRedirect from '@/components/HomeRedirect';
 
 export default async function Home() {
   const supabase = await createClient();
@@ -9,6 +10,7 @@ export default async function Home() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-600 p-4">
+      <HomeRedirect />
       <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-2xl md:p-12">
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-yellow-600 text-3xl font-black text-white shadow-lg">D</div>
         <h1 className="mt-5 text-4xl font-bold tracking-tight text-gray-900 md:text-5xl">Danyal Bhai</h1>
