@@ -9,42 +9,52 @@ Reply in the same language as the user's message. Keep replies to 2-4 warm, resp
 // Provider helpers return null on any failure so the next provider can be tried.
 // This makes temporary outages, quota errors, and missing environment variables non-fatal.
 
+// Groq may retire individual models, so try the fastest current model first and
+// continue through the compatibility list if it is unavailable or rate-limited.
+const GROQ_MODELS = [
+  'llama-3.1-8b-instant',
+  'llama-3.1-70b-versatile',
+  'gemma2-9b-it',
+  'mixtral-8x7b-32768',
+];
+
 // Provider 1: Groq, the primary fast chat provider.
 async function tryGroq(messages: ChatMessage[]) {
-  console.log('[Groq] Attempting request...');
   if (!process.env.GROQ_API_KEY) {
     console.log('[Groq] API key is missing');
     return null;
   }
 
-  try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages,
-        temperature: 0.8,
-        max_tokens: 300,
-      }),
-    });
+  for (const model of GROQ_MODELS) {
+    try {
+      console.log(`[Groq] Trying model: ${model}`);
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model, messages, temperature: 0.8, max_tokens: 300 }),
+      });
 
-    if (!response.ok) {
-      console.error('[Groq] HTTP error:', response.status, await response.text());
-      return null;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error(`[Groq] ${model} failed:`, response.status, errorData.error?.message);
+        continue;
+      }
+
+      const data = await response.json();
+      const reply = data.choices?.[0]?.message?.content?.trim();
+      if (reply) {
+        console.log(`[Groq] Success with model: ${model}`);
+        return reply;
+      }
+    } catch (error: any) {
+      console.error(`[Groq] ${model} exception:`, error.message);
     }
-
-    const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content?.trim();
-    console.log('[Groq] Success:', reply?.slice(0, 50));
-    return reply || null;
-  } catch (error) {
-    console.error('[Groq] Exception:', error);
-    return null;
   }
+
+  return null;
 }
 
 // Provider 2: Mistral, the secondary fallback.
@@ -63,7 +73,7 @@ async function tryMistral(messages: ChatMessage[]) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'mistral-small-latest',
+        model: 'open-mistral-7b',
         messages,
         temperature: 0.8,
         max_tokens: 300,
@@ -138,7 +148,7 @@ async function tryOpenRouter(messages: ChatMessage[]) {
         'X-Title': 'Danyal AI',
       },
       body: JSON.stringify({
-        model: 'meta-llama/llama-3.3-70b-instruct:free',
+        model: 'meta-llama/llama-3.1-8b-instruct:free',
         messages,
         temperature: 0.8,
         max_tokens: 300,

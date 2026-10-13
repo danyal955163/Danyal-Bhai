@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
 
+const GROQ_MODELS = [
+  'llama-3.1-8b-instant',
+  'llama-3.1-70b-versatile',
+  'gemma2-9b-it',
+  'mixtral-8x7b-32768',
+];
+
 export async function GET() {
   const result: any = {
     environment: process.env.NODE_ENV,
@@ -17,35 +24,48 @@ export async function GET() {
       OPENROUTER_API_KEY: !!process.env.OPENROUTER_API_KEY,
       OPENROUTER_PREFIX: process.env.OPENROUTER_API_KEY?.slice(0, 15) || 'MISSING',
     },
-    groq_test: null,
+    groq_test: {
+      models_tried: [],
+      succeeded_model: null,
+      attempts: [],
+    },
     mistral_test: null,
     openrouter_test: null,
   };
 
   // Test Groq, the primary chat provider.
   if (process.env.GROQ_API_KEY) {
-    try {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{ role: 'user', content: 'Reply with: OK' }],
-          max_tokens: 5,
-        }),
-      });
-      const data = await response.json();
-      result.groq_test = {
-        status: response.status,
-        ok: response.ok,
-        response: data.choices?.[0]?.message?.content || null,
-        error: data.error?.message || null,
-      };
-    } catch (error: any) {
-      result.groq_test = { error: error.message };
+    for (const model of GROQ_MODELS) {
+      result.groq_test.models_tried.push(model);
+      try {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: 'Reply with: OK' }],
+            max_tokens: 5,
+          }),
+        });
+        const data = await response.json();
+        const attempt = {
+          model,
+          status: response.status,
+          ok: response.ok,
+          response: data.choices?.[0]?.message?.content || null,
+          error: data.error || null,
+        };
+        result.groq_test.attempts.push(attempt);
+        if (response.ok && attempt.response) {
+          result.groq_test.succeeded_model = model;
+          break;
+        }
+      } catch (error: any) {
+        result.groq_test.attempts.push({ model, error: error.message });
+      }
     }
   }
 
@@ -59,7 +79,7 @@ export async function GET() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'mistral-small-latest',
+          model: 'open-mistral-7b',
           messages: [{ role: 'user', content: 'Reply with: OK' }],
           max_tokens: 5,
         }),
@@ -88,7 +108,7 @@ export async function GET() {
           'X-Title': 'Danyal AI',
         },
         body: JSON.stringify({
-          model: 'meta-llama/llama-3.3-70b-instruct:free',
+          model: 'meta-llama/llama-3.1-8b-instruct:free',
           messages: [{ role: 'user', content: 'Reply with: OK' }],
           max_tokens: 5,
         }),
