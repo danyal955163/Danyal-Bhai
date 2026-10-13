@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Danyal Bhai avatar</title>
+  <desc id="desc">A friendly Pakistani man with a black beard, white cap and white shalwar kameez.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d1fae5"/>
+      <stop offset="1" stop-color="#bae6fd"/>
+    </linearGradient>
+    <linearGradient id="shirt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e2e8f0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="218" r="133" fill="#a96f4b"/>
+  <path d="M126 190c5-94 56-143 130-143s125 49 130 143c-34-20-70-29-130-29s-96 9-130 29Z" fill="#fff"/>
+  <path d="M127 188c18-55 61-81 129-81s111 26 129 81c-37-22-77-32-129-32s-92 10-129 32Z" fill="#f8fafc"/>
+  <path d="M151 235c10 89 47 143 105 143s95-54 105-143c-15 27-42 48-71 57-21 7-47 7-68 0-29-9-56-30-71-57Z" fill="#171717"/>
+  <ellipse cx="207" cy="209" rx="11" ry="8" fill="#17202a"/>
+  <ellipse cx="305" cy="209" rx="11" ry="8" fill="#17202a"/>
+  <path d="M212 184c-17-11-34-10-48 0M300 184c17-11 34-10 48 0" fill="none" stroke="#171717" stroke-width="9" stroke-linecap="round"/>
+  <path d="M251 211c-5 17-8 31 5 36" fill="none" stroke="#7d4d37" stroke-width="7" stroke-linecap="round"/>
+  <path d="M224 261c20 14 44 14 64 0" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+  <path d="M89 512c10-112 73-166 167-166s157 54 167 166Z" fill="url(#shirt)"/>
+  <path d="M256 350v162M176 375c17 36 38 63 80 86 42-23 63-50 80-86" fill="none" stroke="#cbd5e1" stroke-width="5"/>
+  <path d="M214 348c14 18 28 28 42 28s28-10 42-28" fill="none" stroke="#94a3b8" stroke-width="5"/>
+</svg>
