@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import ChatBubble from './ChatBubble';
 import ChatInput from './ChatInput';
 
-type Message = { role: 'user' | 'assistant'; content: string };
+type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string };
 
 export default function ChatInterface({
   messages,
