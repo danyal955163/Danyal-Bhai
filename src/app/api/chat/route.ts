@@ -14,6 +14,7 @@ CRITICAL RULES:
 Reply in the same language as the user's message.`;
 
 async function tryGroq(messages: ChatMessage[]): Promise<string | null> {
+  console.log('Trying Groq...');
   if (!process.env.GROQ_API_KEY) return null;
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -31,6 +32,7 @@ async function tryGroq(messages: ChatMessage[]): Promise<string | null> {
 }
 
 async function tryGemini(messages: ChatMessage[]): Promise<string | null> {
+  console.log('Trying Gemini...');
   if (!process.env.GEMINI_API_KEY) return null;
   try {
     const systemMsg = messages.find((message) => message.role === 'system')?.content || '';
@@ -58,6 +60,7 @@ async function tryGemini(messages: ChatMessage[]): Promise<string | null> {
 }
 
 async function tryOpenRouter(messages: ChatMessage[]): Promise<string | null> {
+  console.log('Trying OpenRouter...');
   if (!process.env.OPENROUTER_API_KEY) return null;
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -75,6 +78,12 @@ async function tryOpenRouter(messages: ChatMessage[]): Promise<string | null> {
 }
 
 export async function POST(request: NextRequest) {
+  console.log('=== Chat API Called ===');
+  console.log('GROQ_API_KEY exists:', !!process.env.GROQ_API_KEY);
+  console.log('GEMINI_API_KEY exists:', !!process.env.GEMINI_API_KEY);
+  console.log('OPENROUTER_API_KEY exists:', !!process.env.OPENROUTER_API_KEY);
+  console.log('MISTRAL_API_KEY exists:', !!process.env.MISTRAL_API_KEY);
+  console.log('CLOUDFLARE_AI_API_KEY exists:', !!process.env.CLOUDFLARE_AI_API_KEY);
   try {
     const { message, history, language, character, image } = await request.json();
     if (typeof message !== 'string' || !message.trim()) return NextResponse.json({ reply: 'کوئی پیغام لکھیں' }, { status: 400 });
