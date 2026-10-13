@@ -14,7 +14,7 @@ export default function ChatInterface({
   isLoading,
 }: {
   messages: Message[];
-  onSend: (text: string) => void;
+  onSend: (text: string, image?: File) => void;
   onVoiceInput: () => void;
   isListening: boolean;
   isLoading: boolean;
