@@ -37,6 +37,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [avatarPhoto] = useState('/avatar/avatar-photo.jpg');
   const router = useRouter();
 
   function speakText(text: string, language = 'ur-PK') {
@@ -172,7 +173,7 @@ export default function ChatPage() {
 
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <section className="flex h-[60%] min-h-0 shrink-0 items-center justify-center overflow-hidden px-2 py-2 sm:px-4">
-          <Avatar photoUrl="/danyal-avatar.svg" isSpeaking={isSpeaking} isListening={isListening} />
+          <Avatar photoUrl={avatarPhoto} isSpeaking={isSpeaking} isListening={isListening} />
         </section>
         <section className="h-[40%] min-h-0 flex-1 overflow-hidden border-t border-white/60 bg-white/40">
           <ChatInterface messages={messages} onSend={handleSend} onVoiceInput={handleVoiceInput} isListening={isListening} isLoading={isLoading} />

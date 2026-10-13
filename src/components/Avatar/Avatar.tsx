@@ -14,6 +14,7 @@ export default function Avatar({
   isListening,
 }: AvatarProps) {
   const [blink, setBlink] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
     let closeBlinkTimer: ReturnType<typeof setTimeout> | undefined;
@@ -60,15 +61,22 @@ export default function Avatar({
               isSpeaking ? 'scale-105' : 'scale-100'
             } transition-transform duration-300`}
           >
-            <img
-              src={photoUrl}
-              alt="Danyal Bhai"
-              className="h-full w-full object-cover"
-              style={{
-                transform: blink ? 'scaleY(0.98)' : 'scaleY(1)',
-                transition: 'transform 0.15s',
-              }}
-            />
+            {imageFailed ? (
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-300 to-yellow-600 text-8xl font-black text-white">
+                D
+              </div>
+            ) : (
+              <img
+                src={photoUrl}
+                alt="Danyal Bhai"
+                onError={() => setImageFailed(true)}
+                className="h-full w-full object-cover"
+                style={{
+                  transform: blink ? 'scaleY(0.98)' : 'scaleY(1)',
+                  transition: 'transform 0.15s',
+                }}
+              />
+            )}
             {isSpeaking && (
               <div className="absolute bottom-12 left-1/2 -translate-x-1/2">
                 <div className="h-2 w-12 animate-pulse rounded-full bg-emerald-400/50 blur-sm" />
