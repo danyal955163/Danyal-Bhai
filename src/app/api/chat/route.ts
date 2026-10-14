@@ -62,25 +62,18 @@ const WELCOME_MESSAGES = new Set([
   'السلام علیکم، څنګه مرسته درسره کولی شم؟',
 ]);
 
-const GROQ_MODELS = [
-  'llama-3.1-8b-instant',
-  'llama-3.1-70b-versatile',
-  'gemma2-9b-it',
-];
-
-function withoutImages(messages: ChatMessage[]): ChatMessage[] {
-  return messages.map((message) => {
-    if (!Array.isArray(message.content)) return message;
-    const text = message.content
-      .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
-      .map((part) => part.text)
-      .join('\n');
-    return {
-      ...message,
-      content: `${text}\n[The user attached an image, but this fallback provider cannot view images. Explain this briefly and answer any text in the message.]`,
-    };
-  });
+function imageUnavailableMessage(language: unknown) {
+  if (typeof language === 'string' && language.startsWith('en')) {
+    return 'Image reading is temporarily unavailable. Please try again shortly.';
+  }
+  if (typeof language === 'string' && language.startsWith('ps')) {
+    return 'د انځور لوستل اوس مهال شتون نه لري. لږ وروسته بیا هڅه وکړئ.';
+  }
+  return 'تصاویر پڑھنے کی سہولت عارضی طور پر دستیاب نہیں۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔';
 }
+
+const GROQ_MODELS = ['qwen/qwen3.8-27b'];
+const GROQ_MAX_IMAGES_PER_REQUEST = 3;
 
 async function tryOpenAI(messages: ChatMessage[]): Promise<string | null> {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -135,7 +128,7 @@ async function tryGroq(messages: ChatMessage[]): Promise<string | null> {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ model, messages, temperature: 0.8, max_tokens: 300 }),
+        body: JSON.stringify({ model, messages, temperature: 0.8, max_completion_tokens: 300 }),
       });
 
       if (!response.ok) {
@@ -155,6 +148,45 @@ async function tryGroq(messages: ChatMessage[]): Promise<string | null> {
   return null;
 }
 
+async function tryGroqVision(messages: ChatMessage[]): Promise<string | null> {
+  const latest = messages[messages.length - 1];
+  if (!latest || latest.role !== 'user' || !Array.isArray(latest.content)) return null;
+
+  const textParts = latest.content.filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text');
+  const imageParts = latest.content.filter((part): part is Extract<ContentPart, { type: 'image_url' }> => part.type === 'image_url');
+  if (imageParts.length === 0) return null;
+
+  const replies: string[] = [];
+  for (let index = 0; index < imageParts.length; index += GROQ_MAX_IMAGES_PER_REQUEST) {
+    const batchMessages: ChatMessage[] = [
+      ...messages.slice(0, -1),
+      {
+        role: 'user',
+        content: [
+          ...textParts,
+          ...imageParts.slice(index, index + GROQ_MAX_IMAGES_PER_REQUEST),
+        ],
+      },
+    ];
+    const reply = await tryGroq(batchMessages);
+    if (!reply) return null;
+    replies.push(reply);
+  }
+
+  return replies.join('\n');
+}
+
+function toMistralMessages(messages: ChatMessage[]) {
+  return messages.map((message) => ({
+    role: message.role,
+    content: Array.isArray(message.content)
+      ? message.content.map((part) => part.type === 'text'
+        ? { type: 'text' as const, text: part.text }
+        : { type: 'image_url' as const, image_url: part.image_url.url })
+      : message.content,
+  }));
+}
+
 async function tryMistral(messages: ChatMessage[]): Promise<string | null> {
   if (!process.env.MISTRAL_API_KEY) return null;
 
@@ -167,8 +199,8 @@ async function tryMistral(messages: ChatMessage[]): Promise<string | null> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'open-mistral-7b',
-        messages,
+        model: 'mistral-small-latest',
+        messages: toMistralMessages(messages),
         temperature: 0.8,
         max_tokens: 300,
       }),
@@ -317,12 +349,15 @@ export async function POST(request: NextRequest) {
     ];
 
     let reply = await tryOpenAI(messages);
-    if (!reply) {
-      const fallbackMessages = imageDataUrls.length ? withoutImages(messages) : messages;
-      reply = await tryGroq(fallbackMessages);
-      if (!reply) reply = await tryMistral(fallbackMessages);
-      if (!reply) reply = await tryOpenRouter(fallbackMessages);
-      if (!reply) reply = await tryCloudflare(fallbackMessages);
+    if (imageDataUrls.length > 0) {
+      if (!reply) reply = await tryMistral(messages);
+      if (!reply) reply = await tryGroqVision(messages);
+      if (!reply) reply = imageUnavailableMessage(language);
+    } else if (!reply) {
+      reply = await tryGroq(messages);
+      if (!reply) reply = await tryMistral(messages);
+      if (!reply) reply = await tryOpenRouter(messages);
+      if (!reply) reply = await tryCloudflare(messages);
     }
 
     if (!reply) {
