@@ -244,7 +244,7 @@ async function tryOpenRouter(messages: ChatMessage[]): Promise<string | null> {
         'X-Title': 'Me AI',
       },
       body: JSON.stringify({
-        model: 'meta-llama/llama-3.1-8b-instruct:free',
+        model: 'google/gemma-4-26b-a4b-it:free',
         messages,
         temperature: 0.8,
         max_tokens: 300,
@@ -363,6 +363,7 @@ export async function POST(request: NextRequest) {
     if (imageDataUrls.length > 0) {
       if (!reply) reply = await tryMistral(messages);
       if (!reply) reply = await tryGroqVision(messages);
+      if (!reply) reply = await tryOpenRouter(messages);
       if (!reply) reply = imageUnavailableMessage(language);
     } else if (!reply) {
       reply = await tryGroq(messages);
