@@ -22,12 +22,12 @@ export default function ChatInterface({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [messages, isLoading]);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto p-4">
+    <div className="flex h-full min-h-0 flex-col">
+      <div id="chat-conversation" aria-label="Chat messages" className="min-h-0 flex-1 overflow-y-auto p-4">
         {messages.length === 0 && (
           <div className="py-8 text-center text-sm text-gray-400">
             Start a conversation by typing or speaking

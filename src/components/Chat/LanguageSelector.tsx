@@ -2,16 +2,7 @@
 
 import { Globe } from 'lucide-react';
 import { useState } from 'react';
-
-export const LANGUAGES = [
-  { code: 'ur-PK', name: 'اردو', flag: '🇵🇰' },
-  { code: 'en-US', name: 'English', flag: '🇬🇧' },
-  { code: 'ps-AF', name: 'پښتو', flag: '🇦🇫' },
-  { code: 'pa-PK', name: 'پنجابی', flag: '🇵🇰' },
-  { code: 'sd-PK', name: 'سنڌي', flag: '🇵🇰' },
-  { code: 'hi-IN', name: 'हिन्दी', flag: '🇮🇳' },
-  { code: 'ar-SA', name: 'العربية', flag: '🇸🇦' },
-];
+import { LANGUAGES } from '@/lib/languages';
 
 export default function LanguageSelector({
   current,
@@ -28,6 +19,7 @@ export default function LanguageSelector({
       <button
         type="button"
         aria-label="Choose language"
+        aria-expanded={open}
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-2 text-xs font-semibold text-emerald-700"
       >
@@ -38,7 +30,7 @@ export default function LanguageSelector({
       {open && (
         <>
           <button type="button" aria-label="Close language menu" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-20 mt-2 max-h-64 w-40 overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-xl">
+          <div className="absolute right-0 top-full z-20 mt-2 w-40 overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-xl">
             {LANGUAGES.map((language) => (
               <button
                 type="button"

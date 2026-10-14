@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | ContentPart[] };
 
 const SYSTEM_PROMPT = `You are "Me AI" — a friendly AI assistant on the Danyal-Bhai website, created by Danyal Bhai.
 
 CRITICAL RULES:
-1. Always reply in the same language the user writes in: Urdu, English, Pashto, Punjabi, Sindhi, Hindi, Arabic, or Persian.
+1. Always reply in the same language the user writes in: Urdu, English, or Pashto.
 2. Keep replies to 2-4 short sentences, suitable for text-to-speech.
 3. Do not use emojis, asterisks, bullet points, or markdown.
 4. Use a warm, respectful, friendly tone and gender-neutral greetings.
@@ -20,6 +23,20 @@ const GROQ_MODELS = [
   'llama-3.1-70b-versatile',
   'gemma2-9b-it',
 ];
+
+function withoutImages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message) => {
+    if (!Array.isArray(message.content)) return message;
+    const text = message.content
+      .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
+      .map((part) => part.text)
+      .join('\n');
+    return {
+      ...message,
+      content: `${text}\n[The user attached an image, but this fallback provider cannot view images. Explain this briefly and answer any text in the message.]`,
+    };
+  });
+}
 
 async function tryOpenAI(messages: ChatMessage[]): Promise<string | null> {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -41,7 +58,6 @@ async function tryOpenAI(messages: ChatMessage[]): Promise<string | null> {
     console.log('[OpenAI] Trying gpt-4o-mini...');
     let response = await requestModel('gpt-4o-mini');
 
-    // Keep the requested compatibility fallback for accounts where the model is unavailable.
     if (response.status === 404) {
       console.log('[OpenAI] gpt-4o-mini unavailable; trying gpt-3.5-turbo...');
       response = await requestModel('gpt-3.5-turbo');
@@ -161,7 +177,6 @@ async function tryOpenRouter(messages: ChatMessage[]): Promise<string | null> {
   }
 }
 
-// Retain the project's existing Cloudflare option as an additional last-resort fallback.
 async function tryCloudflare(messages: ChatMessage[]): Promise<string | null> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiKey = process.env.CLOUDFLARE_AI_API_KEY;
@@ -193,10 +208,22 @@ async function tryCloudflare(messages: ChatMessage[]): Promise<string | null> {
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, history, language, character } = await request.json();
+    const { message, history, language, character, imageBase64 } = await request.json();
 
-    if (typeof message !== 'string' || !message.trim()) {
+    if (typeof message !== 'string' || (!message.trim() && !imageBase64)) {
       return NextResponse.json({ reply: 'کوئی پیغام لکھیں' }, { status: 400 });
+    }
+
+    if (imageBase64 !== undefined) {
+      if (typeof imageBase64 !== 'string') {
+        return NextResponse.json({ reply: 'تصویر کا فارمیٹ درست نہیں ہے۔' }, { status: 400 });
+      }
+      if (imageBase64.length > 7_100_000) {
+        return NextResponse.json({ reply: 'تصویر 5 MB سے چھوٹی ہونی چاہیے۔' }, { status: 413 });
+      }
+      if (!/^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(imageBase64)) {
+        return NextResponse.json({ reply: 'صرف JPG، PNG، WebP یا GIF تصویر بھیجیں۔' }, { status: 400 });
+      }
     }
 
     const characterHint = character === 'teacher'
@@ -214,21 +241,30 @@ export async function POST(request: NextRequest) {
           .map((item) => ({ role: item.role, content: item.content }))
       : [];
 
+    const userContent: string | ContentPart[] = imageBase64
+      ? [
+          { type: 'text', text: message.trim() || 'Please read and describe this image.' },
+          { type: 'image_url', image_url: { url: imageBase64 } },
+        ]
+      : message.trim();
+
     const messages: ChatMessage[] = [
       {
         role: 'system',
         content: `${SYSTEM_PROMPT}\nSelected language preference: ${typeof language === 'string' ? language : 'ur-PK'}.${characterHint}`,
       },
       ...safeHistory,
-      { role: 'user', content: message.trim() },
+      { role: 'user', content: userContent },
     ];
 
-    // OpenAI is primary. Existing providers remain available if it is missing, limited, or unavailable.
     let reply = await tryOpenAI(messages);
-    if (!reply) reply = await tryGroq(messages);
-    if (!reply) reply = await tryMistral(messages);
-    if (!reply) reply = await tryOpenRouter(messages);
-    if (!reply) reply = await tryCloudflare(messages);
+    if (!reply) {
+      const fallbackMessages = imageBase64 ? withoutImages(messages) : messages;
+      reply = await tryGroq(fallbackMessages);
+      if (!reply) reply = await tryMistral(fallbackMessages);
+      if (!reply) reply = await tryOpenRouter(fallbackMessages);
+      if (!reply) reply = await tryCloudflare(fallbackMessages);
+    }
 
     if (!reply) {
       console.error('[Chat] All AI providers failed');
