@@ -8,6 +8,22 @@ type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | Co
 const MAX_IMAGES = 8;
 const MAX_TOTAL_IMAGE_CHARS = 3_200_000;
 
+function extractReply(data: any, provider: string): string | null {
+  const choice = data.choices?.[0];
+  const reply = typeof choice?.message?.content === 'string' ? choice.message.content.trim() : '';
+  if (!reply) return null;
+  if (choice.finish_reason === 'length' || !/[.!؟?۔]$/u.test(reply)) {
+    console.warn(`[${provider}] Reply may be truncated:`, reply.slice(-50));
+  }
+  return reply;
+}
+
+function warnIfReplyMayBeTruncated(reply: string, provider: string) {
+  if (!/[.!؟?۔]$/u.test(reply)) {
+    console.warn(`[${provider}] Reply may be truncated:`, reply.slice(-50));
+  }
+}
+
 const SYSTEM_PROMPT = `You are "Me AI" — a smart, friendly, helpful AI assistant on Danyal Bhai's website.
 
 CRITICAL RULES:
@@ -88,7 +104,7 @@ async function tryOpenAI(messages: ChatMessage[]): Promise<string | null> {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ model, messages, temperature: 0.8, max_tokens: 300 }),
+    body: JSON.stringify({ model, messages, temperature: 0.8, max_tokens: 500 }),
   });
 
   try {
@@ -107,7 +123,7 @@ async function tryOpenAI(messages: ChatMessage[]): Promise<string | null> {
     }
 
     const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content?.trim();
+    const reply = extractReply(data, 'OpenAI');
     if (reply) console.log('[OpenAI] Request succeeded');
     return reply || null;
   } catch (error: any) {
@@ -128,7 +144,7 @@ async function tryGroq(messages: ChatMessage[]): Promise<string | null> {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ model, messages, temperature: 0.8, max_completion_tokens: 300 }),
+        body: JSON.stringify({ model, messages, temperature: 0.8, max_completion_tokens: 500 }),
       });
 
       if (!response.ok) {
@@ -138,7 +154,7 @@ async function tryGroq(messages: ChatMessage[]): Promise<string | null> {
       }
 
       const data = await response.json();
-      const reply = data.choices?.[0]?.message?.content?.trim();
+      const reply = extractReply(data, 'Groq');
       if (reply) return reply;
     } catch (error: any) {
       console.error(`[Groq] ${model} exception:`, error?.message || error);
@@ -213,7 +229,7 @@ async function tryMistral(messages: ChatMessage[]): Promise<string | null> {
         model: 'mistral-small-latest',
         messages: toMistralMessages(messages),
         temperature: 0.8,
-        max_tokens: 300,
+        max_tokens: 500,
       }),
     });
 
@@ -223,7 +239,7 @@ async function tryMistral(messages: ChatMessage[]): Promise<string | null> {
     }
 
     const data = await response.json();
-    return data.choices?.[0]?.message?.content?.trim() || null;
+    return extractReply(data, 'Mistral');
   } catch (error: any) {
     console.error('[Mistral] Exception:', error?.message || error);
     return null;
@@ -247,7 +263,7 @@ async function tryOpenRouter(messages: ChatMessage[]): Promise<string | null> {
         model: 'google/gemma-4-26b-a4b-it:free',
         messages,
         temperature: 0.8,
-        max_tokens: 300,
+        max_tokens: 500,
       }),
     });
 
@@ -257,7 +273,7 @@ async function tryOpenRouter(messages: ChatMessage[]): Promise<string | null> {
     }
 
     const data = await response.json();
-    return data.choices?.[0]?.message?.content?.trim() || null;
+    return extractReply(data, 'OpenRouter');
   } catch (error: any) {
     console.error('[OpenRouter] Exception:', error?.message || error);
     return null;
@@ -277,7 +293,7 @@ async function tryCloudflare(messages: ChatMessage[]): Promise<string | null> {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ messages, max_tokens: 500 }),
     });
 
     if (!response.ok) {
@@ -286,7 +302,9 @@ async function tryCloudflare(messages: ChatMessage[]): Promise<string | null> {
     }
 
     const data = await response.json();
-    return data.result?.response?.trim() || null;
+    const reply = data.result?.response?.trim() || '';
+    if (reply) warnIfReplyMayBeTruncated(reply, 'Cloudflare');
+    return reply || null;
   } catch (error: any) {
     console.error('[Cloudflare] Exception:', error?.message || error);
     return null;

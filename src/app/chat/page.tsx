@@ -232,8 +232,8 @@ export default function ChatPage() {
       text,
       language: currentLanguageRef.current,
       onStart: () => {
+        stopVoiceRecognition();
         updateIsSpeaking(true);
-        startVoiceRecognition(true);
       },
       onEnd: () => {
         updateIsSpeaking(false);
@@ -252,6 +252,17 @@ export default function ChatPage() {
         if (autoListen && autoListenEnabledRef.current) scheduleAutoListen();
       },
     });
+  }
+
+  function stopAssistantSpeech() {
+    cancelAutoListen();
+    cancelInterruptRetry();
+    cancelSilenceTimer();
+    stopSpeaking();
+    stopVoiceRecognition();
+    spokenTextRef.current = '';
+    updateIsSpeaking(false);
+    if (modeRef.current === 'voice' && autoListenEnabledRef.current) scheduleAutoListen();
   }
 
   function createFreshChat(options?: { greet?: boolean; mode?: ChatMode; notify?: boolean }) {
@@ -560,6 +571,7 @@ export default function ChatPage() {
   }
 
   function startVoiceRecognition(interruptOnly: boolean, resetTranscript = true) {
+    if (isSpeakingRef.current) return;
     if (recognitionRef.current) {
       if (interruptOnly) return;
       stopVoiceRecognition();
@@ -583,6 +595,7 @@ export default function ChatPage() {
     setIsListening(true);
 
     recognition.onresult = (event) => {
+      if (isSpeakingRef.current || !listenRequestedRef.current) return;
       let acceptedSpeech = false;
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
@@ -661,6 +674,7 @@ export default function ChatPage() {
   }
 
   function handleVoiceInput() {
+    if (isSpeakingRef.current) return;
     cancelAutoListen();
     cancelInterruptRetry();
     if (recognitionRef.current) {
@@ -695,11 +709,12 @@ export default function ChatPage() {
           isSpeaking={isSpeaking}
           isListening={isListening}
           isLoading={isLoading}
-          statusText={isLoading ? 'Thinking…' : isSpeaking && isListening ? 'Speaking · listening for interruption' : isSpeaking ? 'Speaking…' : isListening ? 'Listening…' : 'Ready — tap to talk'}
+          statusText={isLoading ? 'Thinking…' : isSpeaking ? 'Speaking…' : isListening ? 'Listening…' : 'Ready — tap to talk'}
           voiceEnabled={voiceEnabled}
           character={character}
           onCharacterChange={handleCharacterChange}
           onVoiceInput={handleVoiceInput}
+          onStopSpeaking={stopAssistantSpeech}
           onOpenHistory={() => setSidebarOpen(true)}
           onSettings={() => router.push('/settings')}
           onTextMode={enterTextMode}
