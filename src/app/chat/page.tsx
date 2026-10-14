@@ -101,10 +101,10 @@ export default function ChatPage() {
       },
       onError: (error) => {
         setIsSpeaking(false);
-        console.error('ElevenLabs male voice is unavailable:', error);
+        console.error('Edge-TTS male voice is unavailable:', error);
         const hasHttpStatus = typeof error === 'object' && error !== null && 'status' in error;
         toast.error(hasHttpStatus
-          ? 'ElevenLabs voice API نے error دیا۔ API key، quota اور deployment چیک کریں۔'
+          ? 'Edge-TTS نے error دیا۔ دوبارہ کوشش کریں یا deployment logs چیک کریں۔'
           : 'آواز browser میں play نہیں ہو سکی۔ دوبارہ tap کر کے کوشش کریں۔');
       },
     });

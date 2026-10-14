@@ -1,66 +1,63 @@
+import { EdgeTTS } from '@andresaya/edge-tts';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const MAX_TEXT_LENGTH = 5_000;
+const VOICES: Record<string, string> = {
+  'ur-PK': 'ur-PK-AsadNeural',
+  'en-US': 'en-US-GuyNeural',
+  'ps-AF': 'ps-AF-GulNawazNeural',
+};
 
 export async function POST(request: NextRequest) {
+  let payload: unknown;
   try {
-    const { text, voiceId = 'pNInz6obpgDQGcFmaJgB' } = await request.json();
+    payload = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'A valid JSON request body is required' }, { status: 400 });
+  }
 
-    if (typeof text !== 'string' || !text.trim()) {
-      return NextResponse.json({ error: 'Text is required' }, { status: 400 });
-    }
-    if (text.length > 5000) {
-      return NextResponse.json({ error: 'Text is too long for speech synthesis' }, { status: 413 });
-    }
+  if (typeof payload !== 'object' || payload === null || !('text' in payload)) {
+    return NextResponse.json({ error: 'Text is required' }, { status: 400 });
+  }
 
-    const selectedVoiceId = typeof voiceId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(voiceId)
-      ? voiceId
-      : 'pNInz6obpgDQGcFmaJgB';
-    const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'ElevenLabs is not configured', code: 'NO_API_KEY' },
-        { status: 503 },
-      );
-    }
+  const { text, language } = payload as { text?: unknown; language?: unknown };
+  if (typeof text !== 'string' || !text.trim()) {
+    return NextResponse.json({ error: 'Text is required' }, { status: 400 });
+  }
+  if (text.length > MAX_TEXT_LENGTH) {
+    return NextResponse.json({ error: 'Text is too long for speech synthesis' }, { status: 413 });
+  }
 
-    const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${selectedVoiceId}?output_format=mp3_44100_128`,
-      {
-        method: 'POST',
-        headers: {
-          Accept: 'audio/mpeg',
-          'Content-Type': 'application/json',
-          'xi-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          text: text.trim(),
-          model_id: 'eleven_multilingual_v2',
-          voice_settings: {
-            stability: 0.55,
-            similarity_boost: 0.8,
-            style: 0.3,
-            use_speaker_boost: true,
-          },
-        }),
-        signal: AbortSignal.timeout(25_000),
-      },
-    );
+  const requestedLanguage = typeof language === 'string' ? language : 'en-US';
+  const voice = VOICES[requestedLanguage] ?? VOICES['en-US'];
 
-    if (!response.ok) {
-      console.error('[TTS] ElevenLabs request failed:', response.status);
-      return NextResponse.json({ error: 'ElevenLabs speech synthesis failed' }, { status: 502 });
+  try {
+    const tts = new EdgeTTS();
+    await tts.synthesize(text.trim(), voice, {
+      rate: '-5%',
+      pitch: '-2Hz',
+      outputFormat: 'audio-24khz-96kbitrate-mono-mp3',
+      timeout: 30_000,
+    });
+
+    const audioBuffer = await tts.toBuffer();
+    if (!audioBuffer.byteLength) {
+      throw new Error('The speech service returned empty audio');
     }
 
-    return new NextResponse(await response.arrayBuffer(), {
+    const audioBody = Uint8Array.from(audioBuffer);
+    return new NextResponse(audioBody, {
       status: 200,
       headers: {
         'Content-Type': 'audio/mpeg',
-        'Cache-Control': 'no-store',
+        'Cache-Control': 'no-store, max-age=0',
       },
     });
-  } catch (error: any) {
-    console.error('[TTS] Request error:', error?.message || error);
-    return NextResponse.json({ error: 'Speech synthesis failed' }, { status: 500 });
+  } catch (error) {
+    console.error('[Edge-TTS] Synthesis failed:', error);
+    return NextResponse.json({ error: 'Edge-TTS speech synthesis failed' }, { status: 502 });
   }
 }
