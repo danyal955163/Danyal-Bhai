@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import ChatBubble from './ChatBubble';
 import ChatInput from './ChatInput';
 
-type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string };
+type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string; imageUrls?: string[] };
 
 export default function ChatInterface({
   messages,
@@ -13,13 +13,17 @@ export default function ChatInterface({
   isListening,
   isLoading,
   language,
+  autoOpenImagePicker,
+  onImagePickerHandled,
 }: {
   messages: Message[];
-  onSend: (text: string, image?: File) => void;
+  onSend: (text: string, images?: File[]) => void;
   onVoiceInput: () => void;
   isListening: boolean;
   isLoading: boolean;
   language: string;
+  autoOpenImagePicker?: boolean;
+  onImagePickerHandled?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -57,6 +61,8 @@ export default function ChatInterface({
         isListening={isListening}
         disabled={isLoading}
         language={language}
+        autoOpenImagePicker={autoOpenImagePicker}
+        onImagePickerHandled={onImagePickerHandled}
       />
     </div>
   );

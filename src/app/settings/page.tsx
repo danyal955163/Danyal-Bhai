@@ -112,6 +112,22 @@ export default function SettingsPage() {
               </div>
               <Toggle checked={preferences.autoListen} onChange={() => updatePreferences({ autoListen: !preferences.autoListen })} label="Auto-listen after replies" />
             </div>
+
+            <div className="py-4">
+              <label htmlFor="noise-filter" className="block text-sm font-bold">Background noise filter</label>
+              <p className="mb-2 mt-0.5 text-xs text-slate-500">Higher sensitivity suppresses quieter sounds; loud background speech may still be recognized.</p>
+              <select
+                id="noise-filter"
+                value={preferences.noiseFilterLevel}
+                disabled={!ready}
+                onChange={(event) => updatePreferences({ noiseFilterLevel: event.target.value as AppPreferences['noiseFilterLevel'] })}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              >
+                <option value="low">Low — quiet voices</option>
+                <option value="medium">Medium — recommended</option>
+                <option value="high">High — reduce more background sound</option>
+              </select>
+            </div>
           </div>
 
           <aside className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">

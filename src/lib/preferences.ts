@@ -3,13 +3,17 @@ export type AppPreferences = {
   voiceEnabled: boolean;
   backgroundMode: boolean;
   autoListen: boolean;
+  noiseFilterLevel: NoiseFilterLevel;
 };
+
+export type NoiseFilterLevel = 'low' | 'medium' | 'high';
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
   language: 'ur-PK',
   voiceEnabled: true,
   backgroundMode: false,
   autoListen: true,
+  noiseFilterLevel: 'medium',
 };
 
 const STORAGE_KEY = 'me-ai.preferences.v1';
@@ -29,6 +33,9 @@ export function loadPreferences(): AppPreferences {
       voiceEnabled: typeof stored.voiceEnabled === 'boolean' ? stored.voiceEnabled : DEFAULT_PREFERENCES.voiceEnabled,
       backgroundMode: typeof stored.backgroundMode === 'boolean' ? stored.backgroundMode : DEFAULT_PREFERENCES.backgroundMode,
       autoListen: typeof stored.autoListen === 'boolean' ? stored.autoListen : DEFAULT_PREFERENCES.autoListen,
+      noiseFilterLevel: stored.noiseFilterLevel === 'low' || stored.noiseFilterLevel === 'high' || stored.noiseFilterLevel === 'medium'
+        ? stored.noiseFilterLevel
+        : DEFAULT_PREFERENCES.noiseFilterLevel,
     };
   } catch {
     return DEFAULT_PREFERENCES;

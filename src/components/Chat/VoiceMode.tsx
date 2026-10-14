@@ -8,7 +8,7 @@ import ChatInterface from '@/components/Chat/ChatInterface';
 import LanguageSelector from '@/components/Chat/LanguageSelector';
 import TextTicker from '@/components/Chat/TextTicker';
 
-type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string };
+type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string; imageUrls?: string[] };
 
 export default function VoiceMode({
   messages,
@@ -29,7 +29,7 @@ export default function VoiceMode({
   onTickerTap,
 }: {
   messages: Message[];
-  onSend: (text: string, image?: File) => void;
+  onSend: (text: string, images?: File[]) => void;
   onVoiceInput: () => void;
   isListening: boolean;
   isLoading: boolean;

@@ -1,13 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Image as ImageIcon, Keyboard, LogOut, Menu, Mic, Settings, Volume2, VolumeX, X } from 'lucide-react';
+import { Image as ImageIcon, Keyboard, LogOut, Menu, Mic, Settings, Volume2, VolumeX } from 'lucide-react';
 import AnimatedLogo from '@/components/Brand/AnimatedLogo';
 import CharacterSelector from '@/components/Chat/CharacterSelector';
-
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 interface VoiceDashboardProps {
   photoUrl: string;
@@ -24,7 +21,7 @@ interface VoiceDashboardProps {
   onTextMode: () => void;
   onToggleVoice: () => void;
   onLogout: () => void;
-  onSendImage: (image: File) => void;
+  onImageMode: () => void;
 }
 
 export default function VoiceDashboard({
@@ -42,14 +39,10 @@ export default function VoiceDashboard({
   onTextMode,
   onToggleVoice,
   onLogout,
-  onSendImage,
+  onImageMode,
 }: VoiceDashboardProps) {
   const [blink, setBlink] = useState(false);
-  const [image, setImage] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [imageError, setImageError] = useState('');
   const [avatarFailed, setAvatarFailed] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const motionReduced = useReducedMotion();
 
   useEffect(() => {
@@ -59,44 +52,6 @@ export default function VoiceDashboard({
     }, 4_200);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
-
-  function clearImage() {
-    setImage(null);
-    setPreviewUrl(null);
-    setImageError('');
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }
-
-  function handleImageSelect(event: React.ChangeEvent<HTMLInputElement>) {
-    const selected = event.target.files?.[0];
-    if (!selected) return;
-    if (!SUPPORTED_IMAGE_TYPES.includes(selected.type)) {
-      setImageError('Choose a JPG, PNG, WebP, or GIF image.');
-      event.target.value = '';
-      return;
-    }
-    if (selected.size > MAX_IMAGE_SIZE) {
-      setImageError('Image must be smaller than 5 MB.');
-      event.target.value = '';
-      return;
-    }
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setImageError('');
-    setImage(selected);
-    setPreviewUrl(URL.createObjectURL(selected));
-  }
-
-  function sendImage() {
-    if (!image || isLoading) return;
-    onSendImage(image);
-    clearImage();
-  }
 
   const activityColor = isSpeaking ? 'bg-emerald-500' : isListening ? 'bg-rose-500' : isLoading ? 'bg-amber-500' : 'bg-teal-500';
 
@@ -151,21 +106,13 @@ export default function VoiceDashboard({
           <span className="text-sm font-semibold text-slate-700">{statusText}</span>
         </div>
 
-        {previewUrl && <div className="mt-5 flex items-center gap-3 rounded-2xl border border-white/70 bg-white/85 p-2 shadow-lg backdrop-blur">
-          <img src={previewUrl} alt="Selected image preview" className="h-14 w-14 rounded-xl object-cover" />
-          <div className="max-w-36 truncate text-xs font-medium text-slate-600">{image?.name}</div>
-          <button type="button" onClick={sendImage} disabled={isLoading} className="rounded-full bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Send image</button>
-          <button type="button" onClick={clearImage} aria-label="Remove selected image" className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100"><X size={16} /></button>
-        </div>}
-        {imageError && <p role="alert" className="mt-2 rounded-full bg-white/80 px-3 py-1 text-xs text-rose-700">{imageError}</p>}
       </section>
 
       <footer className="relative z-10 flex flex-wrap items-center justify-center gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2">
-        <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleImageSelect} />
         <button type="button" onClick={onVoiceInput} aria-label={isListening ? 'Stop listening' : 'Tap to talk'} className={`inline-flex min-h-12 items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white shadow-lg transition active:scale-95 ${isListening ? 'bg-rose-600' : 'bg-gradient-to-r from-emerald-600 to-teal-600'}`}>
           <Mic size={18} />{isListening ? 'Listening' : isSpeaking ? 'Interrupt' : isLoading ? 'Please wait' : 'Tap to talk'}
         </button>
-        <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isLoading} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white disabled:opacity-50"><ImageIcon size={18} />Image</button>
+        <button type="button" onClick={onImageMode} disabled={isLoading} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white disabled:opacity-50"><ImageIcon size={18} />Image</button>
         <button type="button" onClick={onTextMode} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/70 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white"><Keyboard size={17} />Text mode</button>
       </footer>
     </main>

@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 type ContentPart =
   | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string } };
+  | { type: 'image_url'; image_url: { url: string; detail: 'low' } };
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | ContentPart[] };
+
+const MAX_IMAGES = 8;
+const MAX_TOTAL_IMAGE_CHARS = 3_200_000;
 
 const SYSTEM_PROMPT = `You are "Me AI" — a friendly AI assistant on the Danyal-Bhai website, created by Danyal Bhai.
 
@@ -249,20 +252,30 @@ async function tryCloudflare(messages: ChatMessage[]): Promise<string | null> {
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, history, language, character, imageBase64 } = await request.json();
+    const { message, history, language, character, imageBase64, images: incomingImages } = await request.json();
+    const images: unknown = incomingImages === undefined
+      ? imageBase64 === undefined ? [] : [imageBase64]
+      : incomingImages;
 
-    if (typeof message !== 'string' || (!message.trim() && !imageBase64)) {
+    if (!Array.isArray(images)) {
+      return NextResponse.json({ reply: 'تصاویر کا فارمیٹ درست نہیں ہے۔' }, { status: 400 });
+    }
+    if (images.length > MAX_IMAGES) {
+      return NextResponse.json({ reply: `ایک وقت میں زیادہ سے زیادہ ${MAX_IMAGES} تصاویر بھیجیں۔` }, { status: 400 });
+    }
+    if (images.some((image) => typeof image !== 'string')) {
+      return NextResponse.json({ reply: 'تصویر کا فارمیٹ درست نہیں ہے۔' }, { status: 400 });
+    }
+    const imageDataUrls = images as string[];
+    if (imageDataUrls.reduce((total, image) => total + image.length, 0) > MAX_TOTAL_IMAGE_CHARS) {
+      return NextResponse.json({ reply: 'تصاویر مجموعی طور پر بہت بڑی ہیں۔ چھوٹی تصاویر یا کم تصاویر بھیجیں۔' }, { status: 413 });
+    }
+    if (typeof message !== 'string' || (!message.trim() && imageDataUrls.length === 0)) {
       return NextResponse.json({ reply: 'کوئی پیغام لکھیں' }, { status: 400 });
     }
 
-    if (imageBase64 !== undefined) {
-      if (typeof imageBase64 !== 'string') {
-        return NextResponse.json({ reply: 'تصویر کا فارمیٹ درست نہیں ہے۔' }, { status: 400 });
-      }
-      if (imageBase64.length > 7_100_000) {
-        return NextResponse.json({ reply: 'تصویر 5 MB سے چھوٹی ہونی چاہیے۔' }, { status: 413 });
-      }
-      if (!/^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(imageBase64)) {
+    for (const image of imageDataUrls) {
+      if (!/^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(image)) {
         return NextResponse.json({ reply: 'صرف JPG، PNG، WebP یا GIF تصویر بھیجیں۔' }, { status: 400 });
       }
     }
@@ -286,10 +299,10 @@ export async function POST(request: NextRequest) {
           .map((item) => ({ role: item.role, content: item.content }))
       : [];
 
-    const userContent: string | ContentPart[] = imageBase64
+    const userContent: string | ContentPart[] = imageDataUrls.length
       ? [
-          { type: 'text', text: message.trim() || 'Please read and describe this image.' },
-          { type: 'image_url', image_url: { url: imageBase64 } },
+          { type: 'text', text: message.trim() || 'Please read and describe these images.' },
+          ...imageDataUrls.map((url): ContentPart => ({ type: 'image_url', image_url: { url, detail: 'low' } })),
         ]
       : message.trim();
 
@@ -305,7 +318,7 @@ export async function POST(request: NextRequest) {
 
     let reply = await tryOpenAI(messages);
     if (!reply) {
-      const fallbackMessages = imageBase64 ? withoutImages(messages) : messages;
+      const fallbackMessages = imageDataUrls.length ? withoutImages(messages) : messages;
       reply = await tryGroq(fallbackMessages);
       if (!reply) reply = await tryMistral(fallbackMessages);
       if (!reply) reply = await tryOpenRouter(fallbackMessages);

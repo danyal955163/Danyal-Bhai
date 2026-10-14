@@ -5,7 +5,7 @@ import Logo from '@/components/Brand/Logo';
 import ChatInterface from '@/components/Chat/ChatInterface';
 import LanguageSelector from '@/components/Chat/LanguageSelector';
 
-type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string };
+type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string; imageUrls?: string[] };
 
 export default function TextMode({
   messages,
@@ -17,9 +17,11 @@ export default function TextMode({
   onLanguageChange,
   onBackToVoice,
   onOpenHistory,
+  autoOpenImagePicker,
+  onImagePickerHandled,
 }: {
   messages: Message[];
-  onSend: (text: string, image?: File) => void;
+  onSend: (text: string, images?: File[]) => void;
   onVoiceInput: () => void;
   isListening: boolean;
   isLoading: boolean;
@@ -27,6 +29,8 @@ export default function TextMode({
   onLanguageChange: (code: string) => void;
   onBackToVoice: () => void;
   onOpenHistory: () => void;
+  autoOpenImagePicker?: boolean;
+  onImagePickerHandled?: () => void;
 }) {
   return (
     <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-gradient-to-b from-sky-50 to-white">
@@ -42,7 +46,7 @@ export default function TextMode({
         </div>
       </header>
       <main className="min-h-0 flex-1">
-        <ChatInterface messages={messages} onSend={onSend} onVoiceInput={onVoiceInput} isListening={isListening} isLoading={isLoading} language={currentLanguage} />
+        <ChatInterface messages={messages} onSend={onSend} onVoiceInput={onVoiceInput} isListening={isListening} isLoading={isLoading} language={currentLanguage} autoOpenImagePicker={autoOpenImagePicker} onImagePickerHandled={onImagePickerHandled} />
       </main>
     </div>
   );

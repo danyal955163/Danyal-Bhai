@@ -8,30 +8,14 @@ import ChatSidebar from '@/components/Chat/ChatSidebar';
 import TextMode from '@/components/Chat/TextMode';
 import VoiceDashboard from '@/components/Chat/VoiceDashboard';
 import { isBackgroundAudioEnabled } from '@/lib/audioSession';
-import { loadPreferences, savePreferences, type AppPreferences } from '@/lib/preferences';
+import { loadPreferences, savePreferences, type AppPreferences, type NoiseFilterLevel } from '@/lib/preferences';
+import { createSpeechRecognition, type SpeechRecognitionInstance } from '@/lib/speech/speechToText';
 import { speak, stopSpeaking } from '@/lib/speech/textToSpeech';
+import { VoiceActivityDetector } from '@/lib/speech/voiceActivityDetector';
 import { createClient } from '@/lib/supabase/client';
 
-type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string };
+type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string; imageUrls?: string[] };
 type ChatMode = 'voice' | 'text';
-type SpeechRecognitionResult = { isFinal: boolean; 0: { transcript: string } };
-type SpeechRecognitionResultList = { length: number; [index: number]: SpeechRecognitionResult };
-type SpeechRecognitionResultEvent = { resultIndex: number; results: SpeechRecognitionResultList };
-type SpeechRecognitionInstance = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  start: () => void;
-  stop: () => void;
-  onresult: (event: SpeechRecognitionResultEvent) => void;
-  onerror: (event: unknown) => void;
-  onend: () => void;
-};
-type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
-type SpeechWindow = Window & {
-  SpeechRecognition?: SpeechRecognitionConstructor;
-  webkitSpeechRecognition?: SpeechRecognitionConstructor;
-};
 
 const WELCOME_MESSAGE = 'السلام علیکم، میں آپ کی کیا مدد کر سکتا ہوں؟';
 const WELCOME_MESSAGES: Record<string, string> = {
@@ -42,13 +26,41 @@ const WELCOME_MESSAGES: Record<string, string> = {
 const WELCOME_CONTENTS = new Set(Object.values(WELCOME_MESSAGES));
 const IDLE_TIMEOUT_MS = 60 * 1000;
 
-function fileToDataUrl(file: File) {
+function blobToDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(blob);
   });
+}
+
+async function compressImageToDataUrl(file: File) {
+  if (typeof createImageBitmap !== 'function') return blobToDataUrl(file);
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return blobToDataUrl(file);
+  }
+  try {
+    for (const [maxDimension, quality] of [[1280, 0.76], [960, 0.66], [768, 0.56]] as const) {
+      const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Could not prepare the selected image.');
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((result) => result ? resolve(result) : reject(new Error('Could not compress the selected image.')), 'image/jpeg', quality);
+      });
+      if (blob.size <= 260_000 || maxDimension === 768) return blobToDataUrl(blob);
+    }
+    throw new Error('Could not compress the selected image.');
+  } finally {
+    bitmap.close();
+  }
 }
 
 export default function ChatPage() {
@@ -62,11 +74,25 @@ export default function ChatPage() {
   const [avatarPhoto] = useState('/avatar/avatar-photo.jpg');
   const [currentLanguage, setCurrentLanguage] = useState('ur-PK');
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [noiseFilterLevel, setNoiseFilterLevel] = useState<NoiseFilterLevel>('medium');
+  const [imagePickerPending, setImagePickerPending] = useState(false);
   const [character, setCharacter] = useState('danyal');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
+  const messagesRef = useRef<Message[]>([]);
+  const messageImageUrlsRef = useRef(new Set<string>());
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const vadRef = useRef<VoiceActivityDetector | null>(null);
+  const vadReadyRef = useRef(false);
+  const lastVadVoiceAtRef = useRef(0);
+  const silenceTimerRef = useRef<number | null>(null);
+  const finalTranscriptRef = useRef('');
+  const interimTranscriptRef = useRef('');
+  const listenRequestedRef = useRef(false);
+  const interruptMonitorRef = useRef(false);
+  const currentLanguageRef = useRef(currentLanguage);
+  const characterRef = useRef(character);
   const autoListenTimerRef = useRef<number | null>(null);
   const interruptRetryTimerRef = useRef<number | null>(null);
   const inactivityTimerRef = useRef<number | null>(null);
@@ -75,7 +101,6 @@ export default function ChatPage() {
   const voiceEnabledRef = useRef(true);
   const autoListenEnabledRef = useRef(true);
   const spokenTextRef = useRef('');
-  const interruptRetryCountRef = useRef(0);
   const chatGenerationRef = useRef(0);
   const router = useRouter();
 
@@ -87,9 +112,15 @@ export default function ChatPage() {
   function applyPreferences(preferences: AppPreferences) {
     setCurrentLanguage(preferences.language);
     setVoiceEnabled(preferences.voiceEnabled);
+    setNoiseFilterLevel(preferences.noiseFilterLevel);
     voiceEnabledRef.current = preferences.voiceEnabled;
     autoListenEnabledRef.current = preferences.autoListen;
+    currentLanguageRef.current = preferences.language;
   }
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     let preferences = loadPreferences();
@@ -106,6 +137,35 @@ export default function ChatPage() {
     return () => window.removeEventListener('me-ai:preferences', handlePreferences);
   }, []);
 
+  useEffect(() => {
+    if (!isListening) {
+      vadRef.current?.stop();
+      vadRef.current = null;
+      vadReadyRef.current = false;
+      lastVadVoiceAtRef.current = 0;
+      return;
+    }
+
+    const detector = new VoiceActivityDetector(noiseFilterLevel);
+    let cancelled = false;
+    vadRef.current = detector;
+    vadReadyRef.current = false;
+    lastVadVoiceAtRef.current = 0;
+    void detector.start(() => { lastVadVoiceAtRef.current = Date.now(); }).then((started) => {
+      if (!cancelled && vadRef.current === detector) vadReadyRef.current = started;
+    });
+
+    return () => {
+      cancelled = true;
+      if (vadRef.current === detector) {
+        detector.stop();
+        vadRef.current = null;
+        vadReadyRef.current = false;
+        lastVadVoiceAtRef.current = 0;
+      }
+    };
+  }, [isListening, mode, noiseFilterLevel]);
+
   function cancelAutoListen() {
     if (autoListenTimerRef.current !== null) {
       window.clearTimeout(autoListenTimerRef.current);
@@ -120,11 +180,23 @@ export default function ChatPage() {
     }
   }
 
+  function cancelSilenceTimer() {
+    if (silenceTimerRef.current !== null) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }
+
   function clearInactivityTimer() {
     if (inactivityTimerRef.current !== null) {
       window.clearTimeout(inactivityTimerRef.current);
       inactivityTimerRef.current = null;
     }
+  }
+
+  function revokeMessageImageUrls() {
+    messageImageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    messageImageUrlsRef.current.clear();
   }
 
   function scheduleAutoListen() {
@@ -133,6 +205,17 @@ export default function ChatPage() {
       autoListenTimerRef.current = null;
       if (modeRef.current === 'voice' && autoListenEnabledRef.current) startVoiceRecognition(false);
     }, 800);
+  }
+
+  function scheduleSilenceSubmission() {
+    cancelSilenceTimer();
+    silenceTimerRef.current = window.setTimeout(() => {
+      silenceTimerRef.current = null;
+      const fullText = `${finalTranscriptRef.current} ${interimTranscriptRef.current}`.replace(/\s+/g, ' ').trim();
+      if (fullText.length <= 2) return;
+      stopVoiceRecognition();
+      void handleSend(fullText);
+    }, 1_500);
   }
 
   function speakText(text: string, autoListen = false) {
@@ -147,26 +230,26 @@ export default function ChatPage() {
     cancelInterruptRetry();
     void speak({
       text,
-      language: currentLanguage,
+      language: currentLanguageRef.current,
       onStart: () => {
-        interruptRetryCountRef.current = 0;
         updateIsSpeaking(true);
         startVoiceRecognition(true);
       },
       onEnd: () => {
         updateIsSpeaking(false);
         spokenTextRef.current = '';
-        if (recognitionRef.current) stopVoiceRecognition();
+        stopVoiceRecognition();
         if (autoListen && autoListenEnabledRef.current) scheduleAutoListen();
       },
       onError: (error) => {
         updateIsSpeaking(false);
-        if (recognitionRef.current) stopVoiceRecognition();
+        stopVoiceRecognition();
         console.error('Edge-TTS male voice is unavailable:', error);
         const hasHttpStatus = typeof error === 'object' && error !== null && 'status' in error;
         toast.error(hasHttpStatus
           ? 'Edge-TTS نے error دیا۔ دوبارہ کوشش کریں یا deployment logs چیک کریں۔'
           : 'آواز browser میں play نہیں ہو سکی۔ دوبارہ tap کر کے کوشش کریں۔');
+        if (autoListen && autoListenEnabledRef.current) scheduleAutoListen();
       },
     });
   }
@@ -176,9 +259,10 @@ export default function ChatPage() {
     clearInactivityTimer();
     cancelAutoListen();
     cancelInterruptRetry();
+    cancelSilenceTimer();
     stopSpeaking();
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
+    stopVoiceRecognition();
+    revokeMessageImageUrls();
     updateIsSpeaking(false);
     setIsListening(false);
     setIsLoading(false);
@@ -234,9 +318,10 @@ export default function ChatPage() {
     clearInactivityTimer();
     cancelAutoListen();
     cancelInterruptRetry();
+    cancelSilenceTimer();
     stopSpeaking();
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
+    stopVoiceRecognition();
+    revokeMessageImageUrls();
     updateIsSpeaking(false);
     setIsListening(false);
     setIsLoading(true);
@@ -259,6 +344,7 @@ export default function ChatPage() {
       setMessages(loaded);
       if (language) {
         setCurrentLanguage(language);
+        currentLanguageRef.current = language;
         savePreferences({ ...loadPreferences(), language });
       }
       resetInactivityTimer();
@@ -296,18 +382,24 @@ export default function ChatPage() {
       mounted = false;
       cancelAutoListen();
       cancelInterruptRetry();
+      cancelSilenceTimer();
       clearInactivityTimer();
       stopSpeaking();
+      listenRequestedRef.current = false;
       recognitionRef.current?.stop();
+      recognitionRef.current = null;
+      vadRef.current?.stop();
+      vadRef.current = null;
+      revokeMessageImageUrls();
     };
   }, [router]);
 
   function enterVoiceMode() {
     cancelAutoListen();
     cancelInterruptRetry();
+    cancelSilenceTimer();
     stopSpeaking();
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
+    stopVoiceRecognition();
     setIsListening(false);
     updateIsSpeaking(false);
     modeRef.current = 'voice';
@@ -320,18 +412,25 @@ export default function ChatPage() {
   function enterTextMode() {
     cancelAutoListen();
     cancelInterruptRetry();
+    cancelSilenceTimer();
     stopSpeaking();
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
+    stopVoiceRecognition();
     updateIsSpeaking(false);
     setIsListening(false);
     modeRef.current = 'text';
     setMode('text');
+    setImagePickerPending(false);
     setMessages((existing) => existing.length ? existing : [{ role: 'assistant', content: WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE }]);
+  }
+
+  function enterImageMode() {
+    enterTextMode();
+    setImagePickerPending(true);
   }
 
   function changeLanguage(language: string) {
     setCurrentLanguage(language);
+    currentLanguageRef.current = language;
     savePreferences({ ...loadPreferences(), language });
   }
 
@@ -342,13 +441,14 @@ export default function ChatPage() {
     savePreferences({ ...loadPreferences(), language: currentLanguage, voiceEnabled: next });
     if (!next) {
       stopSpeaking();
-      cancelInterruptRetry();
-      if (recognitionRef.current) stopVoiceRecognition();
+      cancelAutoListen();
+      stopVoiceRecognition();
       updateIsSpeaking(false);
     }
   }
 
   function handleCharacterChange(id: string) {
+    characterRef.current = id;
     setCharacter(id);
     const greeting = id === 'teacher'
       ? 'میں پڑھانے میں مدد کر سکتا ہوں۔ آپ کیا سیکھنا چاہیں گے؟'
@@ -371,41 +471,43 @@ export default function ChatPage() {
     router.replace('/login');
   }
 
-  async function handleSend(text: string, image?: File) {
+  async function handleSend(text: string, images: File[] = []) {
     const generation = chatGenerationRef.current;
+    const requestLanguage = currentLanguageRef.current;
     const cleanedText = text.trim();
-    if (!cleanedText && !image) return;
-    let imageUrl: string | undefined;
-    let imageBase64: string | undefined;
-    if (image) {
-      imageUrl = URL.createObjectURL(image);
-      try {
-        imageBase64 = await fileToDataUrl(image);
-      } catch (error) {
-        URL.revokeObjectURL(imageUrl);
-        console.error('Could not read image:', error);
-        toast.error('Could not read image');
-        return;
-      }
+    const selectedImages = images.slice(0, 8);
+    if (!cleanedText && selectedImages.length === 0) return;
+    const imageUrls = selectedImages.map((image) => URL.createObjectURL(image));
+    let imageDataUrls: string[];
+    try {
+      imageDataUrls = await Promise.all(selectedImages.map(compressImageToDataUrl));
+      const totalImageChars = imageDataUrls.reduce((total, dataUrl) => total + dataUrl.length, 0);
+      if (totalImageChars > 3_200_000) throw new Error('These images are too large to send together. Choose fewer images or smaller files.');
+    } catch (error) {
+      imageUrls.forEach((url) => URL.revokeObjectURL(url));
+      console.error('Could not prepare selected images:', error);
+      toast.error(error instanceof Error ? error.message : 'Could not read selected images');
+      return;
     }
     if (generation !== chatGenerationRef.current) {
-      if (imageUrl) URL.revokeObjectURL(imageUrl);
+      imageUrls.forEach((url) => URL.revokeObjectURL(url));
       return;
     }
 
-    const userMessage: Message = { role: 'user', content: cleanedText, imageUrl };
-    const previousMessages = messages;
+    const userMessage: Message = { role: 'user', content: cleanedText, imageUrls: imageUrls.length ? imageUrls : undefined };
+    const previousMessages = messagesRef.current;
     const historyWithoutWelcome = previousMessages.filter((item) =>
       !(item.role === 'assistant' && WELCOME_CONTENTS.has(item.content)),
     );
+    imageUrls.forEach((url) => messageImageUrlsRef.current.add(url));
     setMessages((existing) => [...existing, userMessage]);
     setIsLoading(true);
     resetInactivityTimer();
 
     try {
-      const conversationId = user ? await ensureConversation(user.id, currentLanguage, generation) : null;
+      const conversationId = user ? await ensureConversation(user.id, requestLanguage, generation) : null;
       if (generation !== chatGenerationRef.current) return;
-      if (user && conversationId) await saveMessage(user.id, conversationId, 'user', cleanedText, currentLanguage);
+      if (user && conversationId) await saveMessage(user.id, conversationId, 'user', cleanedText, requestLanguage);
 
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -413,65 +515,75 @@ export default function ChatPage() {
         body: JSON.stringify({
           message: cleanedText,
           history: historyWithoutWelcome,
-          language: currentLanguage,
-          character,
-          imageBase64,
+          language: requestLanguage,
+          character: characterRef.current,
+          images: imageDataUrls,
         }),
       });
       const data = await response.json();
       if (generation !== chatGenerationRef.current) return;
       if (!response.ok || !data.reply) {
         toast.error(data.error ?? 'Failed to get a response');
+        if (modeRef.current === 'voice' && autoListenEnabledRef.current) scheduleAutoListen();
         return;
       }
       const assistantMessage: Message = { role: 'assistant', content: data.reply };
       setMessages((existing) => [...existing, assistantMessage]);
-      if (user && conversationId) await saveMessage(user.id, conversationId, 'assistant', data.reply, currentLanguage);
+      if (user && conversationId) await saveMessage(user.id, conversationId, 'assistant', data.reply, requestLanguage);
       resetInactivityTimer();
       if (modeRef.current === 'voice') speakText(data.reply, true);
     } catch (error) {
       console.error('Chat request failed:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to send message');
+      if (modeRef.current === 'voice' && autoListenEnabledRef.current) scheduleAutoListen();
     } finally {
       if (generation === chatGenerationRef.current) setIsLoading(false);
     }
   }
 
-  function stopVoiceRecognition() {
+  function stopVoiceRecognition(updateUi = true) {
+    listenRequestedRef.current = false;
+    interruptMonitorRef.current = false;
     cancelInterruptRetry();
+    cancelSilenceTimer();
     const recognition = recognitionRef.current;
     recognitionRef.current = null;
     if (recognition) {
       try { recognition.stop(); } catch { /* Recognition may already have ended. */ }
     }
-    setIsListening(false);
+    vadRef.current?.stop();
+    vadRef.current = null;
+    vadReadyRef.current = false;
+    finalTranscriptRef.current = '';
+    interimTranscriptRef.current = '';
+    if (updateUi) setIsListening(false);
   }
 
-  function startVoiceRecognition(interruptOnly: boolean) {
+  function startVoiceRecognition(interruptOnly: boolean, resetTranscript = true) {
     if (recognitionRef.current) {
       if (interruptOnly) return;
       stopVoiceRecognition();
     }
 
-    const speechWindow = window as SpeechWindow;
-    const SpeechRecognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
+    const recognition = createSpeechRecognition(currentLanguageRef.current);
+    if (!recognition) {
+      listenRequestedRef.current = false;
       if (!interruptOnly) toast.error('Voice input is not supported in this browser');
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    let interrupted = false;
-    let pendingTranscript = '';
-    let sentTranscript = false;
+    cancelInterruptRetry();
+    listenRequestedRef.current = true;
+    interruptMonitorRef.current = interruptOnly;
+    if (resetTranscript) {
+      finalTranscriptRef.current = '';
+      interimTranscriptRef.current = '';
+    }
     recognitionRef.current = recognition;
-    recognition.continuous = interruptOnly;
-    recognition.interimResults = interruptOnly;
-    recognition.lang = currentLanguage;
     setIsListening(true);
 
     recognition.onresult = (event) => {
-      if (sentTranscript) return;
+      let acceptedSpeech = false;
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
         const transcript = result[0]?.transcript.trim() ?? '';
@@ -480,32 +592,27 @@ export default function ChatPage() {
         const normalized = transcript.toLocaleLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
         const spoken = spokenTextRef.current.toLocaleLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
         const isExplicitStop = /^(stop|quiet|shut up|بس|خاموش|روکیں|چپ)$/iu.test(normalized);
-        const likelyEcho = interruptOnly && !isExplicitStop && normalized.length >= 4 && spoken.includes(normalized);
+        const likelyAssistantEcho = interruptMonitorRef.current && !isExplicitStop && normalized.length >= 4 && spoken.includes(normalized);
+        if (likelyAssistantEcho) continue;
 
-        if (interruptOnly && isSpeakingRef.current && !likelyEcho) {
-          interrupted = true;
-          pendingTranscript = transcript;
+        const vadHasRecentVoice = !vadReadyRef.current || Date.now() - lastVadVoiceAtRef.current < 1_200;
+        if (!vadHasRecentVoice) continue;
+
+        if (interruptMonitorRef.current && isSpeakingRef.current) {
           stopSpeaking();
           updateIsSpeaking(false);
+          interruptMonitorRef.current = false;
         }
 
-        if (!result.isFinal) continue;
-        if (interruptOnly && likelyEcho && !interrupted) continue;
-
-        const finalTranscript = transcript || pendingTranscript;
-        if (finalTranscript) {
-          if (isSpeakingRef.current) {
-            stopSpeaking();
-            updateIsSpeaking(false);
-          }
-          recognitionRef.current = null;
-          setIsListening(false);
-          sentTranscript = true;
-          try { recognition.stop(); } catch { /* It may already be ending. */ }
-          void handleSend(finalTranscript);
-          return;
+        if (result.isFinal) {
+          finalTranscriptRef.current = `${finalTranscriptRef.current} ${transcript}`.replace(/\s+/g, ' ').trim();
+          interimTranscriptRef.current = '';
+        } else {
+          interimTranscriptRef.current = transcript;
         }
+        acceptedSpeech = true;
       }
+      if (acceptedSpeech) scheduleSilenceSubmission();
     };
 
     recognition.onerror = (event) => {
@@ -514,34 +621,40 @@ export default function ChatPage() {
         : 'unknown';
       console.info('[Speech recognition] Recognition ended:', code);
       if (recognitionRef.current === recognition) recognitionRef.current = null;
-      setIsListening(false);
-      if (code === 'not-allowed' || code === 'service-not-allowed') interruptRetryCountRef.current = 3;
-      if (code !== 'no-speech' && code !== 'aborted') toast.error('Could not recognize voice. Check microphone permission.');
+      if (code === 'not-allowed' || code === 'service-not-allowed') {
+        listenRequestedRef.current = false;
+        vadRef.current?.stop();
+        vadRef.current = null;
+        vadReadyRef.current = false;
+        setIsListening(false);
+        toast.error('Microphone permission is required for voice input.');
+      } else if (code !== 'no-speech' && code !== 'aborted') {
+        toast.error('Could not recognize voice. Check microphone permission.');
+      }
     };
 
     recognition.onend = () => {
-      if (recognitionRef.current === recognition) {
-        recognitionRef.current = null;
+      if (recognitionRef.current === recognition) recognitionRef.current = null;
+      if (!listenRequestedRef.current || modeRef.current !== 'voice') {
         setIsListening(false);
+        return;
       }
-      if (interruptOnly && isSpeakingRef.current && modeRef.current === 'voice' && interruptRetryCountRef.current < 2) {
-        interruptRetryCountRef.current += 1;
-        cancelInterruptRetry();
-        interruptRetryTimerRef.current = window.setTimeout(() => {
-          interruptRetryTimerRef.current = null;
-          if (isSpeakingRef.current && modeRef.current === 'voice') startVoiceRecognition(true);
-        }, 350);
-      } else if (interruptOnly && interrupted && pendingTranscript && !sentTranscript) {
-        sentTranscript = true;
-        void handleSend(pendingTranscript);
-      }
+      setIsListening(false);
+      cancelInterruptRetry();
+      interruptRetryTimerRef.current = window.setTimeout(() => {
+        interruptRetryTimerRef.current = null;
+        if (listenRequestedRef.current && modeRef.current === 'voice' && !recognitionRef.current) {
+          startVoiceRecognition(interruptMonitorRef.current, false);
+        }
+      }, 300);
     };
 
     try {
       recognition.start();
     } catch (error) {
       console.error('Could not start speech recognition:', error);
-      if (recognitionRef.current === recognition) recognitionRef.current = null;
+      recognitionRef.current = null;
+      listenRequestedRef.current = false;
       setIsListening(false);
       if (!interruptOnly) toast.error('Could not start voice input');
     }
@@ -549,6 +662,7 @@ export default function ChatPage() {
 
   function handleVoiceInput() {
     cancelAutoListen();
+    cancelInterruptRetry();
     if (recognitionRef.current) {
       stopVoiceRecognition();
       return;
@@ -589,16 +703,9 @@ export default function ChatPage() {
           onOpenHistory={() => setSidebarOpen(true)}
           onSettings={() => router.push('/settings')}
           onTextMode={enterTextMode}
+          onImageMode={enterImageMode}
           onToggleVoice={toggleVoice}
           onLogout={() => { void handleLogout(); }}
-          onSendImage={(image) => {
-            const prompt = currentLanguage === 'ur-PK'
-              ? 'براہِ کرم اس تصویر کی وضاحت کریں۔'
-              : currentLanguage === 'ps-AF'
-                ? 'مهرباني وکړئ دا انځور تشریح کړئ.'
-                : 'Please describe this image.';
-            void handleSend(prompt, image);
-          }}
         />
       ) : (
         <TextMode
@@ -611,6 +718,8 @@ export default function ChatPage() {
           onLanguageChange={changeLanguage}
           onBackToVoice={enterVoiceMode}
           onOpenHistory={() => setSidebarOpen(true)}
+          autoOpenImagePicker={imagePickerPending}
+          onImagePickerHandled={() => setImagePickerPending(false)}
         />
       )}
     </>
