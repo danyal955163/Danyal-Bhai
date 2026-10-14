@@ -5,8 +5,8 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Danyal Bhai',
-  description: 'AI Chat in Any Language',
+  title: 'Me AI',
+  description: 'A multilingual voice assistant in Urdu, English, and Pashto.',
 };
 
 export default function RootLayout({
