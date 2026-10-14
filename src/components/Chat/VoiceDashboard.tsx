@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Image as ImageIcon, Keyboard, LogOut, Menu, Mic, Settings, Square, Volume2, VolumeX } from 'lucide-react';
+import { Image as ImageIcon, Keyboard, LogOut, Menu, Mic, Settings, Volume2, VolumeX } from 'lucide-react';
 import AnimatedLogo from '@/components/Brand/AnimatedLogo';
 import CharacterSelector from '@/components/Chat/CharacterSelector';
 
@@ -16,7 +16,6 @@ interface VoiceDashboardProps {
   character: string;
   onCharacterChange: (character: string) => void;
   onVoiceInput: () => void;
-  onStopSpeaking: () => void;
   onOpenHistory: () => void;
   onSettings: () => void;
   onTextMode: () => void;
@@ -35,7 +34,6 @@ export default function VoiceDashboard({
   character,
   onCharacterChange,
   onVoiceInput,
-  onStopSpeaking,
   onOpenHistory,
   onSettings,
   onTextMode,
@@ -111,15 +109,9 @@ export default function VoiceDashboard({
       </section>
 
       <footer className="relative z-10 flex flex-wrap items-center justify-center gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2">
-        {isSpeaking ? (
-          <button type="button" onClick={onStopSpeaking} aria-label="Stop assistant speech" className="inline-flex min-h-14 animate-pulse items-center gap-2 rounded-full bg-red-600 px-8 py-4 text-base font-bold text-white shadow-xl transition hover:bg-red-700 active:scale-95">
-            <Square size={19} fill="currentColor" />Stop
-          </button>
-        ) : (
-          <button type="button" onClick={onVoiceInput} aria-label={isListening ? 'Stop listening' : 'Tap to talk'} className={`inline-flex min-h-12 items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white shadow-lg transition active:scale-95 ${isListening ? 'bg-rose-600' : 'bg-gradient-to-r from-emerald-600 to-teal-600'}`}>
-            <Mic size={18} />{isListening ? 'Listening' : isLoading ? 'Please wait' : 'Tap to talk'}
-          </button>
-        )}
+        <button type="button" onClick={onVoiceInput} disabled={isSpeaking || isLoading} aria-label={isSpeaking ? 'Listening for interruption' : isListening ? 'Stop listening' : 'Tap to talk'} className={`inline-flex min-h-12 items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white shadow-lg transition active:scale-95 disabled:cursor-default disabled:opacity-75 ${isListening ? 'bg-rose-600' : 'bg-gradient-to-r from-emerald-600 to-teal-600'}`}>
+          <Mic size={18} />{isSpeaking ? 'Listening for interruption' : isListening ? 'Listening' : isLoading ? 'Please wait' : 'Tap to talk'}
+        </button>
         <button type="button" onClick={onImageMode} disabled={isLoading} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white disabled:opacity-50"><ImageIcon size={18} />Image</button>
         <button type="button" onClick={onTextMode} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/70 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white"><Keyboard size={17} />Text mode</button>
       </footer>

@@ -28,7 +28,7 @@ const SYSTEM_PROMPT = `You are "Me AI" — a smart, friendly, helpful AI assista
 
 CRITICAL RULES:
 
-1. LANGUAGE: Always reply in the SAME language the user wrote in (Urdu, English, Pashto, etc.).
+1. LANGUAGE: Detect the user's language from their latest message and reply ONLY in that language, without mixing languages. Urdu script → Urdu in Urdu script. Pashto script → Pashto in Pashto script. Latin-script text → English. Follow any explicit per-request language instruction below.
 
 2. ANSWER EVERYTHING:
    - You are a general-purpose assistant. Help with reasonable questions on any topic, including math, science, history, coding, health, religion, news, advice, jokes, stories, and translations.
@@ -62,10 +62,12 @@ CRITICAL RULES:
 NOW ANSWER THE USER'S QUESTION DIRECTLY AND HELPFULLY.`;
 
 const FEW_SHOT_EXAMPLES: ChatMessage[] = [
-  { role: 'user', content: '2+2 kya hai?' },
-  { role: 'assistant', content: '4' },
-  { role: 'user', content: 'Pakistan ki capital kya hai?' },
-  { role: 'assistant', content: 'Islamabad Pakistan ka capital hai.' },
+  { role: 'user', content: 'What is 2+2?' },
+  { role: 'assistant', content: '2+2 equals 4.' },
+  { role: 'user', content: 'پاکستان کا دارالحکومت کیا ہے؟' },
+  { role: 'assistant', content: 'اسلام آباد پاکستان کا دارالحکومت ہے۔' },
+  { role: 'user', content: 'زه څنګه مرسته غوښتلی شم؟' },
+  { role: 'assistant', content: 'تاسو خپله پوښتنه راسره شریکه کړئ، زه به مرسته وکړم.' },
   { role: 'user', content: 'What is a computer?' },
   { role: 'assistant', content: 'A computer is an electronic device that processes information and runs programs.' },
   { role: 'user', content: 'Tell me a short joke.' },
@@ -335,6 +337,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ reply: 'کوئی پیغام لکھیں' }, { status: 400 });
     }
 
+    const selectedLanguage = language === 'ps-AF' ? 'ps-AF' : language === 'en-US' ? 'en-US' : 'ur-PK';
+    const containsArabicScript = /[\u0600-\u06FF]/u.test(message);
+    const replyLanguage = containsArabicScript
+      ? (/[ټډړځڅښږڼګ]/u.test(message) || selectedLanguage === 'ps-AF' ? 'ps-AF' : 'ur-PK')
+      : message.trim() ? 'en-US' : selectedLanguage;
+    const languageInstruction = replyLanguage === 'ps-AF'
+      ? ' Reply only in Pashto using Pashto script.'
+      : replyLanguage === 'ur-PK'
+        ? ' Reply only in Urdu using Urdu script.'
+        : ' Reply only in English.';
+
     for (const image of imageDataUrls) {
       if (!/^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(image)) {
         return NextResponse.json({ reply: 'صرف JPG، PNG، WebP یا GIF تصویر بھیجیں۔' }, { status: 400 });
@@ -370,7 +383,7 @@ export async function POST(request: NextRequest) {
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: `${SYSTEM_PROMPT}${characterHint}`,
+        content: `${SYSTEM_PROMPT}${languageInstruction}${characterHint}`,
       },
       ...FEW_SHOT_EXAMPLES,
       ...safeHistory,
@@ -382,7 +395,7 @@ export async function POST(request: NextRequest) {
       if (!reply) reply = await tryMistral(messages);
       if (!reply) reply = await tryGroqVision(messages);
       if (!reply) reply = await tryOpenRouter(messages);
-      if (!reply) reply = imageUnavailableMessage(language);
+      if (!reply) reply = imageUnavailableMessage(replyLanguage);
     } else if (!reply) {
       reply = await tryGroq(messages);
       if (!reply) reply = await tryMistral(messages);

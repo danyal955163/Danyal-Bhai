@@ -26,6 +26,13 @@ const WELCOME_MESSAGES: Record<string, string> = {
 const WELCOME_CONTENTS = new Set(Object.values(WELCOME_MESSAGES));
 const IDLE_TIMEOUT_MS = 60 * 1000;
 
+function detectMessageLanguage(text: string, preferredLanguage: string): string {
+  if (!text.trim()) return preferredLanguage;
+  if (!/[\u0600-\u06FF]/u.test(text)) return 'en-US';
+  if (/[ټډړځڅښږڼګ]/u.test(text) || preferredLanguage === 'ps-AF') return 'ps-AF';
+  return 'ur-PK';
+}
+
 function blobToDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -204,7 +211,7 @@ export default function ChatPage() {
     autoListenTimerRef.current = window.setTimeout(() => {
       autoListenTimerRef.current = null;
       if (modeRef.current === 'voice' && autoListenEnabledRef.current) startVoiceRecognition(false);
-    }, 800);
+    }, 600);
   }
 
   function scheduleSilenceSubmission() {
@@ -215,10 +222,10 @@ export default function ChatPage() {
       if (fullText.length <= 2) return;
       stopVoiceRecognition();
       void handleSend(fullText);
-    }, 1_500);
+    }, 2_000);
   }
 
-  function speakText(text: string, autoListen = false) {
+  function speakText(text: string, autoListen = false, language = currentLanguageRef.current) {
     if (modeRef.current !== 'voice') return;
     spokenTextRef.current = text;
     if (!voiceEnabledRef.current) {
@@ -230,10 +237,10 @@ export default function ChatPage() {
     cancelInterruptRetry();
     void speak({
       text,
-      language: currentLanguageRef.current,
+      language,
       onStart: () => {
-        stopVoiceRecognition();
         updateIsSpeaking(true);
+        startVoiceRecognition(true);
       },
       onEnd: () => {
         updateIsSpeaking(false);
@@ -252,17 +259,6 @@ export default function ChatPage() {
         if (autoListen && autoListenEnabledRef.current) scheduleAutoListen();
       },
     });
-  }
-
-  function stopAssistantSpeech() {
-    cancelAutoListen();
-    cancelInterruptRetry();
-    cancelSilenceTimer();
-    stopSpeaking();
-    stopVoiceRecognition();
-    spokenTextRef.current = '';
-    updateIsSpeaking(false);
-    if (modeRef.current === 'voice' && autoListenEnabledRef.current) scheduleAutoListen();
   }
 
   function createFreshChat(options?: { greet?: boolean; mode?: ChatMode; notify?: boolean }) {
@@ -484,8 +480,9 @@ export default function ChatPage() {
 
   async function handleSend(text: string, images: File[] = []) {
     const generation = chatGenerationRef.current;
-    const requestLanguage = currentLanguageRef.current;
     const cleanedText = text.trim();
+    const requestLanguage = detectMessageLanguage(cleanedText, currentLanguageRef.current);
+    if (requestLanguage !== currentLanguageRef.current) changeLanguage(requestLanguage);
     const selectedImages = images.slice(0, 8);
     if (!cleanedText && selectedImages.length === 0) return;
     const imageUrls = selectedImages.map((image) => URL.createObjectURL(image));
@@ -542,7 +539,7 @@ export default function ChatPage() {
       setMessages((existing) => [...existing, assistantMessage]);
       if (user && conversationId) await saveMessage(user.id, conversationId, 'assistant', data.reply, requestLanguage);
       resetInactivityTimer();
-      if (modeRef.current === 'voice') speakText(data.reply, true);
+      if (modeRef.current === 'voice') speakText(data.reply, true, requestLanguage);
     } catch (error) {
       console.error('Chat request failed:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to send message');
@@ -571,9 +568,11 @@ export default function ChatPage() {
   }
 
   function startVoiceRecognition(interruptOnly: boolean, resetTranscript = true) {
-    if (isSpeakingRef.current) return;
     if (recognitionRef.current) {
-      if (interruptOnly) return;
+      if (interruptOnly) {
+        interruptMonitorRef.current = true;
+        return;
+      }
       stopVoiceRecognition();
     }
 
@@ -595,7 +594,7 @@ export default function ChatPage() {
     setIsListening(true);
 
     recognition.onresult = (event) => {
-      if (isSpeakingRef.current || !listenRequestedRef.current) return;
+      if (!listenRequestedRef.current) return;
       let acceptedSpeech = false;
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
@@ -709,12 +708,11 @@ export default function ChatPage() {
           isSpeaking={isSpeaking}
           isListening={isListening}
           isLoading={isLoading}
-          statusText={isLoading ? 'Thinking…' : isSpeaking ? 'Speaking…' : isListening ? 'Listening…' : 'Ready — tap to talk'}
+          statusText={isLoading ? 'Thinking…' : isSpeaking && isListening ? 'Speaking · listening for interruption' : isSpeaking ? 'Speaking…' : isListening ? 'Listening…' : 'Ready — tap to talk'}
           voiceEnabled={voiceEnabled}
           character={character}
           onCharacterChange={handleCharacterChange}
           onVoiceInput={handleVoiceInput}
-          onStopSpeaking={stopAssistantSpeech}
           onOpenHistory={() => setSidebarOpen(true)}
           onSettings={() => router.push('/settings')}
           onTextMode={enterTextMode}
