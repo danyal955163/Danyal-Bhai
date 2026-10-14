@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 type ContentPart =
   | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string; detail: 'low' } };
+  | { type: 'image_url'; image_url: { url: string; detail?: 'low' } };
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | ContentPart[] };
 
 const MAX_IMAGES = 8;
@@ -164,11 +164,22 @@ async function tryGroqVision(messages: ChatMessage[]): Promise<string | null> {
         role: 'user',
         content: [
           ...textParts,
-          ...imageParts.slice(index, index + GROQ_MAX_IMAGES_PER_REQUEST),
+          ...imageParts.slice(index, index + GROQ_MAX_IMAGES_PER_REQUEST).map((part): ContentPart => ({
+            type: 'image_url',
+            image_url: { url: part.image_url.url, detail: 'low' },
+          })),
         ],
       },
     ];
-    const reply = await tryGroq(batchMessages);
+    const groqMessages: ChatMessage[] = batchMessages.map((message) => ({
+      ...message,
+      content: Array.isArray(message.content)
+        ? message.content.map((part) => part.type === 'image_url'
+          ? { type: 'image_url' as const, image_url: { url: part.image_url.url } }
+          : part)
+        : message.content,
+    }));
+    const reply = await tryGroq(groqMessages);
     if (!reply) return null;
     replies.push(reply);
   }
