@@ -93,6 +93,7 @@ export default function ChatPage() {
   const messageImageUrlsRef = useRef(new Set<string>());
   const screenSharingRef = useRef(false);
   const screenFrameRef = useRef<string | null>(null);
+  const screenAnalysisPendingRef = useRef(false);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const vadRef = useRef<VoiceActivityDetector | null>(null);
   const vadReadyRef = useRef(false);
@@ -126,12 +127,14 @@ export default function ChatPage() {
 
   function handleScreenStart() {
     screenSharingRef.current = true;
+    screenAnalysisPendingRef.current = true;
     setScreenSharing(true);
   }
 
   function handleScreenStop() {
     screenSharingRef.current = false;
     screenFrameRef.current = null;
+    screenAnalysisPendingRef.current = false;
     setScreenSharing(false);
   }
 
@@ -147,6 +150,17 @@ export default function ChatPage() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    if (!screenSharing || !screenAnalysisPendingRef.current || isLoading || isSpeaking) return;
+    screenAnalysisPendingRef.current = false;
+    const prompt = currentLanguage === 'ur-PK'
+      ? 'میں نے اپنی اسکرین شیئر کر دی ہے۔ براہِ کرم اسے دیکھ کر اگلا قدم بتائیں۔'
+      : currentLanguage === 'ps-AF'
+        ? 'ما خپله پرده شریکه کړه. مهرباني وکړئ وګورئ او راته ووایاست چې بل څه وکړم.'
+        : 'I have shared my screen. Please look at it and tell me the next step.';
+    void handleSend(prompt);
+  }, [screenSharing, isLoading, isSpeaking, currentLanguage]);
 
   useEffect(() => {
     let preferences = loadPreferences();
@@ -734,10 +748,10 @@ export default function ChatPage() {
         <div role="status" aria-live="polite" className="fixed left-0 right-0 top-14 z-40 bg-red-600 px-3 py-2 text-center text-xs font-semibold text-white shadow sm:text-sm">
           <span aria-hidden="true" className="mr-2 animate-pulse">●</span>
           {currentLanguage === 'ur-PK'
-            ? 'اسکرین شیئر فعال ہے — تازہ اسکرین شاٹ صرف آپ کا پیغام بھیجنے پر AI کو بھیجا جائے گا۔'
+            ? 'اسکرین شیئر فعال ہے — پہلی تصویر کا ابھی تجزیہ ہوگا؛ بعد کی تصاویر آپ کے پیغامات کے ساتھ جائیں گی۔'
             : currentLanguage === 'ps-AF'
-              ? 'د سکرین شریکول فعال دي — وروستی انځور یوازې ستاسو د پیغام لېږلو پر مهال AI ته استول کېږي.'
-              : 'Screen sharing is active — the latest snapshot is sent to AI only when you send a message.'}
+              ? 'د سکرین شریکول فعال دي — لومړی انځور اوس تحلیل کېږي؛ وروسته انځورونه ستاسو د پیغامونو سره لېږل کېږي.'
+              : 'Screen sharing is active — one initial snapshot is analyzed; later snapshots are sent only with your messages.'}
         </div>
       )}
       <div className="fixed right-4 z-40" style={{ bottom: 'calc(6.5rem + env(safe-area-inset-bottom, 0px))' }}>
