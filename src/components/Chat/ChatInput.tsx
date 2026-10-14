@@ -5,22 +5,30 @@ import { useRef, useState } from 'react';
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const PLACEHOLDERS: Record<string, string> = {
+  'ur-PK': 'یہاں اپنا پیغام لکھیں...',
+  'en-US': 'Type your message here...',
+  'ps-AF': 'خپل پیغام دلته ولیکئ...',
+};
 
 export default function ChatInput({
   onSend,
   onVoiceInput,
   isListening,
   disabled,
+  language,
 }: {
   onSend: (text: string, image?: File) => void;
   onVoiceInput: () => void;
   isListening: boolean;
   disabled: boolean;
+  language: string;
 }) {
   const [text, setText] = useState('');
   const [image, setImage] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isRtl = language === 'ur-PK' || language === 'ps-AF';
 
   function handleImageSelect(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -69,7 +77,17 @@ export default function ChatInput({
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageSelect} className="hidden" />
         <button type="button" onClick={() => fileInputRef.current?.click()} disabled={disabled} aria-label="Attach image" title="Send image" className="rounded-full bg-gray-100 p-2.5 text-gray-600 hover:bg-gray-200 disabled:opacity-50"><ImagePlus size={18} /></button>
         <button type="button" onClick={onVoiceInput} disabled={disabled} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`rounded-full p-2.5 ${isListening ? 'animate-pulse bg-red-500 text-white' : 'bg-gray-100 text-gray-600'} disabled:opacity-50`}><Mic size={18} /></button>
-        <input id="chat-input" type="text" value={text} onChange={(event) => setText(event.target.value)} placeholder="Type your message..." disabled={disabled} className="min-w-0 flex-1 rounded-full bg-gray-100 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+        <input
+          id="chat-input"
+          type="text"
+          dir={isRtl ? 'rtl' : 'ltr'}
+          lang={language}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder={PLACEHOLDERS[language] ?? PLACEHOLDERS['en-US']}
+          disabled={disabled}
+          className="min-w-0 flex-1 rounded-full bg-gray-100 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        />
         <button type="submit" disabled={(!text.trim() && !image) || disabled} aria-label="Send message" className="rounded-full bg-emerald-500 p-3 text-white disabled:opacity-50"><Send size={18} /></button>
       </div>
     </form>

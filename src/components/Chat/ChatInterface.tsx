@@ -12,12 +12,14 @@ export default function ChatInterface({
   onVoiceInput,
   isListening,
   isLoading,
+  language,
 }: {
   messages: Message[];
   onSend: (text: string, image?: File) => void;
   onVoiceInput: () => void;
   isListening: boolean;
   isLoading: boolean;
+  language: string;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -54,6 +56,7 @@ export default function ChatInterface({
         onVoiceInput={onVoiceInput}
         isListening={isListening}
         disabled={isLoading}
+        language={language}
       />
     </div>
   );

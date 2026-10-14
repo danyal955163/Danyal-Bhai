@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { toast } from 'react-hot-toast';
+import { Toaster, toast } from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
+import ChatSidebar from '@/components/Chat/ChatSidebar';
 import TextMode from '@/components/Chat/TextMode';
 import VoiceMode from '@/components/Chat/VoiceMode';
 import WelcomeScreen from '@/components/Chat/WelcomeScreen';
@@ -34,6 +35,7 @@ const WELCOME_MESSAGES: Record<string, string> = {
   'en-US': 'Hello, how can I help you today?',
   'ps-AF': 'السلام علیکم، څنګه مرسته درسره کولی شم؟',
 };
+const IDLE_TIMEOUT_MS = 60 * 1000;
 
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -55,12 +57,14 @@ export default function ChatPage() {
   const [avatarPhoto] = useState('/avatar/avatar-photo.jpg');
   const [currentLanguage, setCurrentLanguage] = useState('ur-PK');
   const [character, setCharacter] = useState('danyal');
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const autoListenTimerRef = useRef<number | null>(null);
+  const inactivityTimerRef = useRef<number | null>(null);
   const modeRef = useRef<ChatMode>('welcome');
-  const voiceEnabledRef = useRef(true);
+  const chatGenerationRef = useRef(0);
   const router = useRouter();
 
   function cancelAutoListen() {
@@ -70,102 +74,23 @@ export default function ChatPage() {
     }
   }
 
+  function clearInactivityTimer() {
+    if (inactivityTimerRef.current !== null) {
+      window.clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
+  }
+
   function scheduleAutoListen() {
     cancelAutoListen();
     autoListenTimerRef.current = window.setTimeout(() => {
       autoListenTimerRef.current = null;
-      if (modeRef.current === 'voice' && voiceEnabledRef.current) handleVoiceInput();
+      if (modeRef.current === 'voice') handleVoiceInput();
     }, 800);
   }
 
-  async function getTodayConversation(userId: string, language: string) {
-    const supabase = createClient();
-    const today = new Date().toISOString().split('T')[0];
-    const { data: existing, error: findError } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('user_id', userId)
-      .gte('created_at', `${today}T00:00:00.000Z`)
-      .lt('created_at', `${today}T23:59:59.999Z`)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (findError) {
-      console.error('Could not find today conversation:', findError);
-      return null;
-    }
-    if (existing?.id) return existing.id as string;
-
-    const { data: created, error: createError } = await supabase
-      .from('conversations')
-      .insert({ user_id: userId, language })
-      .select('id')
-      .single();
-    if (createError) {
-      console.error('Could not create conversation:', createError);
-      return null;
-    }
-    return created?.id as string | null;
-  }
-
-  async function saveMessage(userId: string, role: 'user' | 'assistant', content: string, language: string) {
-    const supabase = createClient();
-    const conversationId = conversationIdRef.current ?? await getTodayConversation(userId, language);
-    if (!conversationId) return;
-    conversationIdRef.current = conversationId;
-    const { error } = await supabase
-      .from('messages')
-      .insert({ conversation_id: conversationId, user_id: userId, role, content, language });
-    if (error) console.error(`Could not save ${role} message:`, error);
-  }
-
-  async function loadChatHistory(currentUser: User) {
-    const conversationId = await getTodayConversation(currentUser.id, currentLanguage);
-    if (!conversationId) return;
-    conversationIdRef.current = conversationId;
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('messages')
-      .select('role, content, language')
-      .eq('conversation_id', conversationId)
-      .eq('user_id', currentUser.id)
-      .order('created_at', { ascending: false })
-      .limit(20);
-    if (error) {
-      console.error('Could not load chat history:', error);
-      return;
-    }
-    const history = (data ?? [])
-      .reverse()
-      .filter((item) => (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string')
-      .map((item) => ({ role: item.role as 'user' | 'assistant', content: item.content }));
-    if (history.length) setMessages(history);
-  }
-
-  useEffect(() => {
-    let mounted = true;
-    const supabase = createClient();
-    supabase.auth.getUser().then(async ({ data }) => {
-      if (!mounted) return;
-      if (!data.user) {
-        router.replace('/login');
-        setLoading(false);
-        return;
-      }
-      setUser(data.user);
-      await loadChatHistory(data.user);
-      if (mounted) setLoading(false);
-    });
-    return () => {
-      mounted = false;
-      cancelAutoListen();
-      stopSpeaking();
-      recognitionRef.current?.stop();
-    };
-  }, [router]);
-
   function speakText(text: string, autoListen = false) {
-    if (!voiceEnabled || mode !== 'voice') return;
+    if (modeRef.current !== 'voice') return;
     void speak({
       text,
       language: currentLanguage,
@@ -174,9 +99,140 @@ export default function ChatPage() {
         setIsSpeaking(false);
         if (autoListen) scheduleAutoListen();
       },
-      onError: () => setIsSpeaking(false),
+      onError: (error) => {
+        setIsSpeaking(false);
+        console.error('ElevenLabs male voice is unavailable:', error);
+        toast.error('مردانہ آواز دستیاب نہیں۔ ElevenLabs key اور deployment چیک کریں۔');
+      },
     });
   }
+
+  function createFreshChat(options?: { greet?: boolean; mode?: ChatMode; notify?: boolean }) {
+    chatGenerationRef.current += 1;
+    clearInactivityTimer();
+    cancelAutoListen();
+    stopSpeaking();
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setIsSpeaking(false);
+    setIsListening(false);
+    setIsLoading(false);
+    conversationIdRef.current = null;
+    setCurrentConversationId(null);
+
+    const nextMode = options?.mode ?? modeRef.current;
+    modeRef.current = nextMode;
+    setMode(nextMode);
+    const greeting = WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE;
+    setMessages(options?.greet ? [{ role: 'assistant', content: greeting }] : []);
+
+    if (options?.greet && nextMode === 'voice') speakText(greeting, true);
+    if (options?.notify) toast.success('نیا چیٹ شروع ہو گیا');
+  }
+
+  function resetInactivityTimer() {
+    clearInactivityTimer();
+    inactivityTimerRef.current = window.setTimeout(() => {
+      inactivityTimerRef.current = null;
+      createFreshChat({ greet: true, notify: true });
+    }, IDLE_TIMEOUT_MS);
+  }
+
+  async function ensureConversation(userId: string, language: string, generation: number) {
+    if (conversationIdRef.current) return conversationIdRef.current;
+    const { data, error } = await createClient()
+      .from('conversations')
+      .insert({ user_id: userId, language })
+      .select('id')
+      .single();
+    if (error || !data?.id) {
+      console.error('Could not create a chat conversation:', error);
+      throw new Error('Could not save this chat. Please try again.');
+    }
+    const id = data.id as string;
+    if (generation !== chatGenerationRef.current) return null;
+    conversationIdRef.current = id;
+    setCurrentConversationId(id);
+    return id;
+  }
+
+  async function saveMessage(userId: string, conversationId: string, role: 'user' | 'assistant', content: string, language: string) {
+    const { error } = await createClient()
+      .from('messages')
+      .insert({ conversation_id: conversationId, user_id: userId, role, content, language });
+    if (error) console.error(`Could not save ${role} message:`, error);
+  }
+
+  async function loadConversation(conversationId: string, language?: string | null) {
+    if (!user) return;
+    const generation = ++chatGenerationRef.current;
+    clearInactivityTimer();
+    cancelAutoListen();
+    stopSpeaking();
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setIsSpeaking(false);
+    setIsListening(false);
+    setIsLoading(true);
+
+    try {
+      const { data, error } = await createClient()
+        .from('messages')
+        .select('role, content, language')
+        .eq('conversation_id', conversationId)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(100);
+      if (error) throw error;
+      if (generation !== chatGenerationRef.current) return;
+      const loaded = (data ?? [])
+        .filter((item) => (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string')
+        .map((item) => ({ role: item.role as 'user' | 'assistant', content: item.content }));
+      conversationIdRef.current = conversationId;
+      setCurrentConversationId(conversationId);
+      setMessages(loaded);
+      if (language) setCurrentLanguage(language);
+      resetInactivityTimer();
+      if (modeRef.current === 'welcome') {
+        modeRef.current = 'text';
+        setMode('text');
+      }
+    } catch (error) {
+      if (generation !== chatGenerationRef.current) return;
+      console.error('Could not open conversation:', error);
+      toast.error('Could not open this chat');
+    } finally {
+      if (generation === chatGenerationRef.current) setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let mounted = true;
+    createClient().auth.getUser().then(({ data, error }) => {
+      if (!mounted) return;
+      if (error || !data.user) {
+        router.replace('/login');
+        setLoading(false);
+        return;
+      }
+      setUser(data.user);
+      setLoading(false);
+    }).catch((error: unknown) => {
+      console.error('Could not verify sign-in:', error);
+      if (mounted) {
+        router.replace('/login');
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      cancelAutoListen();
+      clearInactivityTimer();
+      stopSpeaking();
+      recognitionRef.current?.stop();
+    };
+  }, [router]);
 
   function enterVoiceMode() {
     cancelAutoListen();
@@ -188,19 +244,7 @@ export default function ChatPage() {
     setMode('voice');
     const welcome = WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE;
     setMessages((existing) => [...existing, { role: 'assistant', content: welcome }]);
-    if (!voiceEnabled) return;
-
-    // The explicit button click grants a natural point to request speech and microphone access.
-    void speak({
-      text: welcome,
-      language: currentLanguage,
-      onStart: () => setIsSpeaking(true),
-      onEnd: () => {
-        setIsSpeaking(false);
-        scheduleAutoListen();
-      },
-      onError: () => setIsSpeaking(false),
-    });
+    speakText(welcome, true);
   }
 
   function enterTextMode() {
@@ -212,9 +256,7 @@ export default function ChatPage() {
     setIsListening(false);
     modeRef.current = 'text';
     setMode('text');
-    setMessages((existing) => existing.length
-      ? existing
-      : [{ role: 'assistant', content: WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE }]);
+    setMessages((existing) => existing.length ? existing : [{ role: 'assistant', content: WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE }]);
   }
 
   function returnToWelcome() {
@@ -230,18 +272,19 @@ export default function ChatPage() {
 
   function handleCharacterChange(id: string) {
     setCharacter(id);
-    const welcome = id === 'teacher'
+    const greeting = id === 'teacher'
       ? 'میں پڑھانے میں مدد کر سکتا ہوں۔ آپ کیا سیکھنا چاہیں گے؟'
       : id === 'friend'
         ? 'کیسے ہیں؟ کیا حال ہے؟'
         : id === 'guide'
           ? 'میں آپ کی رہنمائی کر سکتا ہوں۔ آپ کہاں جانا چاہتے ہیں؟'
           : (WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE);
-    setMessages((existing) => [...existing, { role: 'assistant', content: welcome }]);
-    speakText(welcome, true);
+    setMessages((existing) => [...existing, { role: 'assistant', content: greeting }]);
+    speakText(greeting, true);
   }
 
   async function handleLogout() {
+    clearInactivityTimer();
     cancelAutoListen();
     stopSpeaking();
     recognitionRef.current?.stop();
@@ -250,6 +293,9 @@ export default function ChatPage() {
   }
 
   async function handleSend(text: string, image?: File) {
+    const generation = chatGenerationRef.current;
+    const cleanedText = text.trim();
+    if (!cleanedText && !image) return;
     let imageUrl: string | undefined;
     let imageBase64: string | undefined;
     if (image) {
@@ -263,38 +309,49 @@ export default function ChatPage() {
         return;
       }
     }
+    if (generation !== chatGenerationRef.current) {
+      if (imageUrl) URL.revokeObjectURL(imageUrl);
+      return;
+    }
 
-    const userMessage: Message = { role: 'user', content: text, imageUrl };
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    const userMessage: Message = { role: 'user', content: cleanedText, imageUrl };
+    const previousMessages = messages;
+    setMessages((existing) => [...existing, userMessage]);
     setIsLoading(true);
-    if (user) await saveMessage(user.id, 'user', text, currentLanguage);
+    resetInactivityTimer();
 
     try {
+      const conversationId = user ? await ensureConversation(user.id, currentLanguage, generation) : null;
+      if (generation !== chatGenerationRef.current) return;
+      if (user && conversationId) await saveMessage(user.id, conversationId, 'user', cleanedText, currentLanguage);
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
-          history: messages,
+          message: cleanedText,
+          history: previousMessages,
           language: currentLanguage,
           character,
           imageBase64,
         }),
       });
       const data = await response.json();
+      if (generation !== chatGenerationRef.current) return;
       if (!response.ok || !data.reply) {
         toast.error(data.error ?? 'Failed to get a response');
         return;
       }
-      setMessages([...newMessages, { role: 'assistant', content: data.reply }]);
-      if (user) await saveMessage(user.id, 'assistant', data.reply, currentLanguage);
-      if (mode === 'voice') speakText(data.reply, true);
+      const assistantMessage: Message = { role: 'assistant', content: data.reply };
+      setMessages((existing) => [...existing, assistantMessage]);
+      if (user && conversationId) await saveMessage(user.id, conversationId, 'assistant', data.reply, currentLanguage);
+      resetInactivityTimer();
+      if (modeRef.current === 'voice') speakText(data.reply, true);
     } catch (error) {
       console.error('Chat request failed:', error);
-      toast.error('Failed to send message');
+      toast.error(error instanceof Error ? error.message : 'Failed to send message');
     } finally {
-      setIsLoading(false);
+      if (generation === chatGenerationRef.current) setIsLoading(false);
     }
   }
 
@@ -337,73 +394,68 @@ export default function ChatPage() {
     }
   }
 
-  function toggleVoice() {
-    if (voiceEnabled) {
-      cancelAutoListen();
-      stopSpeaking();
-      recognitionRef.current?.stop();
-      recognitionRef.current = null;
-      setIsSpeaking(false);
-      setIsListening(false);
-    }
-    const nextEnabled = !voiceEnabled;
-    voiceEnabledRef.current = nextEnabled;
-    setVoiceEnabled(nextEnabled);
+  function handleNewChat() {
+    const nextMode = modeRef.current === 'welcome' ? 'text' : modeRef.current;
+    createFreshChat({ greet: true, mode: nextMode });
   }
 
-  function handleTickerTap() {
-    const conversation = document.getElementById('chat-conversation');
-    if (conversation) conversation.scrollTo({ top: conversation.scrollHeight, behavior: 'smooth' });
-    document.getElementById('chat-input')?.focus({ preventScroll: true });
-  }
-
-  async function handleLogoutAction() {
-    await handleLogout();
-  }
-
-  if (loading || !user) {
+  if (loading) {
     return <div className="flex h-[100dvh] items-center justify-center bg-gradient-to-b from-sky-100 to-blue-50 text-gray-500">Loading...</div>;
   }
-
-  if (mode === 'welcome') {
-    return <WelcomeScreen onVoiceMode={enterVoiceMode} onTextMode={enterTextMode} />;
-  }
-
-  if (mode === 'voice') {
-    return (
-      <VoiceMode
-        messages={messages}
-        onSend={handleSend}
-        onVoiceInput={handleVoiceInput}
-        isListening={isListening}
-        isLoading={isLoading}
-        isSpeaking={isSpeaking}
-        photoUrl={avatarPhoto}
-        currentLanguage={currentLanguage}
-        onLanguageChange={setCurrentLanguage}
-        character={character}
-        onCharacterChange={handleCharacterChange}
-        voiceEnabled={voiceEnabled}
-        onToggleVoice={toggleVoice}
-        onSwitchToText={enterTextMode}
-        onBack={returnToWelcome}
-        onLogout={handleLogoutAction}
-        onTickerTap={handleTickerTap}
-      />
-    );
-  }
+  if (!user) return null;
 
   return (
-    <TextMode
-      messages={messages}
-      onSend={handleSend}
-      onVoiceInput={handleVoiceInput}
-      isListening={isListening}
-      isLoading={isLoading}
-      currentLanguage={currentLanguage}
-      onLanguageChange={setCurrentLanguage}
-      onBackToVoice={enterVoiceMode}
-      onLogout={handleLogoutAction}
-    />
+    <>
+      <Toaster position="top-center" />
+      <ChatSidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        currentConversationId={currentConversationId}
+        onNewChat={handleNewChat}
+        onSelectConversation={(id, language) => { void loadConversation(id, language); }}
+      />
+      {modeRef.current === 'welcome' && mode === 'welcome' ? (
+        <WelcomeScreen
+          onVoiceMode={enterVoiceMode}
+          onTextMode={enterTextMode}
+          onOpenHistory={() => setSidebarOpen(true)}
+        />
+      ) : mode === 'voice' ? (
+        <VoiceMode
+          messages={messages}
+          onSend={handleSend}
+          onVoiceInput={handleVoiceInput}
+          isListening={isListening}
+          isLoading={isLoading}
+          isSpeaking={isSpeaking}
+          photoUrl={avatarPhoto}
+          currentLanguage={currentLanguage}
+          onLanguageChange={setCurrentLanguage}
+          character={character}
+          onCharacterChange={handleCharacterChange}
+          onSwitchToText={enterTextMode}
+          onBack={returnToWelcome}
+          onOpenHistory={() => setSidebarOpen(true)}
+          onLogout={() => { void handleLogout(); }}
+          onTickerTap={() => {
+            const conversation = document.getElementById('chat-conversation');
+            if (conversation) conversation.scrollTo({ top: conversation.scrollHeight, behavior: 'smooth' });
+            document.getElementById('chat-input')?.focus({ preventScroll: true });
+          }}
+        />
+      ) : (
+        <TextMode
+          messages={messages}
+          onSend={handleSend}
+          onVoiceInput={handleVoiceInput}
+          isListening={isListening}
+          isLoading={isLoading}
+          currentLanguage={currentLanguage}
+          onLanguageChange={setCurrentLanguage}
+          onBackToVoice={enterVoiceMode}
+          onOpenHistory={() => setSidebarOpen(true)}
+        />
+      )}
+    </>
   );
 }
