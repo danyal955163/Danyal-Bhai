@@ -39,6 +39,7 @@ const WELCOME_MESSAGES: Record<string, string> = {
   'en-US': 'Hello, how can I help you today?',
   'ps-AF': 'السلام علیکم، څنګه مرسته درسره کولی شم؟',
 };
+const WELCOME_CONTENTS = new Set(Object.values(WELCOME_MESSAGES));
 const IDLE_TIMEOUT_MS = 60 * 1000;
 
 function fileToDataUrl(file: File) {
@@ -394,6 +395,9 @@ export default function ChatPage() {
 
     const userMessage: Message = { role: 'user', content: cleanedText, imageUrl };
     const previousMessages = messages;
+    const historyWithoutWelcome = previousMessages.filter((item) =>
+      !(item.role === 'assistant' && WELCOME_CONTENTS.has(item.content)),
+    );
     setMessages((existing) => [...existing, userMessage]);
     setIsLoading(true);
     resetInactivityTimer();
@@ -408,7 +412,7 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: cleanedText,
-          history: previousMessages,
+          history: historyWithoutWelcome,
           language: currentLanguage,
           character,
           imageBase64,
