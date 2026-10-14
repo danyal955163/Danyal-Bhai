@@ -5,6 +5,7 @@ import { Toaster, toast } from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
 import ChatSidebar from '@/components/Chat/ChatSidebar';
+import ScreenShareButton from '@/components/Chat/ScreenShareButton';
 import TextMode from '@/components/Chat/TextMode';
 import VoiceDashboard from '@/components/Chat/VoiceDashboard';
 import { isBackgroundAudioEnabled } from '@/lib/audioSession';
@@ -83,12 +84,15 @@ export default function ChatPage() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [noiseFilterLevel, setNoiseFilterLevel] = useState<NoiseFilterLevel>('medium');
   const [imagePickerPending, setImagePickerPending] = useState(false);
+  const [screenSharing, setScreenSharing] = useState(false);
   const [character, setCharacter] = useState('danyal');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const messageImageUrlsRef = useRef(new Set<string>());
+  const screenSharingRef = useRef(false);
+  const screenFrameRef = useRef<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const vadRef = useRef<VoiceActivityDetector | null>(null);
   const vadReadyRef = useRef(false);
@@ -114,6 +118,21 @@ export default function ChatPage() {
   function updateIsSpeaking(value: boolean) {
     isSpeakingRef.current = value;
     setIsSpeakingState(value);
+  }
+
+  function handleScreenFrame(frame: string) {
+    screenFrameRef.current = frame;
+  }
+
+  function handleScreenStart() {
+    screenSharingRef.current = true;
+    setScreenSharing(true);
+  }
+
+  function handleScreenStop() {
+    screenSharingRef.current = false;
+    screenFrameRef.current = null;
+    setScreenSharing(false);
   }
 
   function applyPreferences(preferences: AppPreferences) {
@@ -483,12 +502,27 @@ export default function ChatPage() {
     const cleanedText = text.trim();
     const requestLanguage = detectMessageLanguage(cleanedText, currentLanguageRef.current);
     if (requestLanguage !== currentLanguageRef.current) changeLanguage(requestLanguage);
-    const selectedImages = images.slice(0, 8);
+    const sharingAtSubmission = screenSharingRef.current;
+    if (sharingAtSubmission && images.length > 7) {
+      toast('Screen sharing uses one image slot; only the first 7 attached images were sent.');
+    }
+    const selectedImages = images.slice(0, sharingAtSubmission ? 7 : 8);
     if (!cleanedText && selectedImages.length === 0) return;
     const imageUrls = selectedImages.map((image) => URL.createObjectURL(image));
     let imageDataUrls: string[];
+    let screenFrameForRequest: string | null = null;
     try {
-      imageDataUrls = await Promise.all(selectedImages.map(compressImageToDataUrl));
+      const uploadedImageDataUrls = await Promise.all(selectedImages.map(compressImageToDataUrl));
+      screenFrameForRequest = sharingAtSubmission && screenSharingRef.current ? screenFrameRef.current : null;
+      if (sharingAtSubmission && screenSharingRef.current && !screenFrameForRequest) {
+        throw new Error('The shared screen is still loading. Wait a moment and try again.');
+      }
+      if (screenFrameForRequest && uploadedImageDataUrls.length > 7) {
+        throw new Error('When screen sharing, attach up to 7 additional images.');
+      }
+      imageDataUrls = screenFrameForRequest
+        ? [...uploadedImageDataUrls, screenFrameForRequest]
+        : uploadedImageDataUrls;
       const totalImageChars = imageDataUrls.reduce((total, dataUrl) => total + dataUrl.length, 0);
       if (totalImageChars > 3_200_000) throw new Error('These images are too large to send together. Choose fewer images or smaller files.');
     } catch (error) {
@@ -526,6 +560,7 @@ export default function ChatPage() {
           language: requestLanguage,
           character: characterRef.current,
           images: imageDataUrls,
+          screenMode: Boolean(screenFrameForRequest),
         }),
       });
       const data = await response.json();
@@ -695,6 +730,25 @@ export default function ChatPage() {
   return (
     <>
       <Toaster position="top-center" />
+      {screenSharing && (
+        <div role="status" aria-live="polite" className="fixed left-0 right-0 top-14 z-40 bg-red-600 px-3 py-2 text-center text-xs font-semibold text-white shadow sm:text-sm">
+          <span aria-hidden="true" className="mr-2 animate-pulse">●</span>
+          {currentLanguage === 'ur-PK'
+            ? 'اسکرین شیئر فعال ہے — تازہ اسکرین شاٹ صرف آپ کا پیغام بھیجنے پر AI کو بھیجا جائے گا۔'
+            : currentLanguage === 'ps-AF'
+              ? 'د سکرین شریکول فعال دي — وروستی انځور یوازې ستاسو د پیغام لېږلو پر مهال AI ته استول کېږي.'
+              : 'Screen sharing is active — the latest snapshot is sent to AI only when you send a message.'}
+        </div>
+      )}
+      <div className="fixed right-4 z-40" style={{ bottom: 'calc(6.5rem + env(safe-area-inset-bottom, 0px))' }}>
+        <ScreenShareButton
+          onFrame={handleScreenFrame}
+          active={screenSharing}
+          language={currentLanguage}
+          onStart={handleScreenStart}
+          onStop={handleScreenStop}
+        />
+      </div>
       <ChatSidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
