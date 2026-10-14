@@ -102,7 +102,10 @@ export default function ChatPage() {
       onError: (error) => {
         setIsSpeaking(false);
         console.error('ElevenLabs male voice is unavailable:', error);
-        toast.error('مردانہ آواز دستیاب نہیں۔ ElevenLabs key اور deployment چیک کریں۔');
+        const hasHttpStatus = typeof error === 'object' && error !== null && 'status' in error;
+        toast.error(hasHttpStatus
+          ? 'ElevenLabs voice API نے error دیا۔ API key، quota اور deployment چیک کریں۔'
+          : 'آواز browser میں play نہیں ہو سکی۔ دوبارہ tap کر کے کوشش کریں۔');
       },
     });
   }

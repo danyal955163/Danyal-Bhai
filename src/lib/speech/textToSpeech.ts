@@ -15,10 +15,20 @@ const ELEVENLABS_MALE_VOICES: Record<string, string> = {
   fa: 'pNInz6obpgDQGcFmaJgB', // Adam
 };
 
-let currentAudio: HTMLAudioElement | null = null;
-let currentAudioUrl: string | null = null;
-let rejectCurrentAudio: ((reason?: unknown) => void) | null = null;
+type AudioWindow = Window & { webkitAudioContext?: typeof AudioContext };
+
+let currentContext: AudioContext | null = null;
+let currentSource: AudioBufferSourceNode | null = null;
 let currentRequest: AbortController | null = null;
+
+function getAudioContext() {
+  if (typeof window === 'undefined') return null;
+  const audioWindow = window as AudioWindow;
+  const AudioContextClass = window.AudioContext ?? audioWindow.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  currentContext ??= new AudioContextClass();
+  return currentContext;
+}
 
 function isAbortError(error: unknown) {
   return error instanceof Error && error.name === 'AbortError';
@@ -28,29 +38,32 @@ export function stopSpeaking(): void {
   if (typeof window === 'undefined') return;
   currentRequest?.abort();
   currentRequest = null;
-
-  if (!currentAudio) return;
-  const audio = currentAudio;
-  const audioUrl = currentAudioUrl;
-  const reject = rejectCurrentAudio;
-  currentAudio = null;
-  currentAudioUrl = null;
-  rejectCurrentAudio = null;
-  audio.pause();
-  audio.src = '';
-  if (audioUrl) URL.revokeObjectURL(audioUrl);
-  reject?.(new DOMException('Speech cancelled', 'AbortError'));
+  const source = currentSource;
+  currentSource = null;
+  if (source) {
+    source.onended = null;
+    try { source.stop(); } catch { /* Source may already have ended. */ }
+    try { source.disconnect(); } catch { /* Already disconnected. */ }
+  }
 }
 
 export async function speak({ text, language = 'ur-PK', onStart, onEnd, onError }: SpeakOptions): Promise<void> {
   stopSpeaking();
   if (typeof window === 'undefined') return;
 
+  // Resume synchronously, before the network request, while a user's tap is still active.
+  // This is important on mobile Safari/Chrome, where HTMLAudio.play() after fetch is
+  // often rejected by autoplay policy even though the user tapped the voice-mode button.
+  const context = getAudioContext();
+  const unlockPromise = context && context.state !== 'running'
+    ? context.resume()
+    : Promise.resolve();
+  void unlockPromise.catch(() => undefined);
+
   const langCode = language.split('-')[0].toLowerCase();
   const voiceId = ELEVENLABS_MALE_VOICES[langCode] ?? ELEVENLABS_MALE_VOICES.en;
   const controller = new AbortController();
   currentRequest = controller;
-  let audioUrl: string | null = null;
 
   try {
     const response = await fetch('/api/tts', {
@@ -61,44 +74,41 @@ export async function speak({ text, language = 'ur-PK', onStart, onEnd, onError 
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || 'ElevenLabs speech synthesis failed');
+      const error = new Error(data.error || 'ElevenLabs speech synthesis failed') as Error & { status?: number };
+      error.status = response.status;
+      throw error;
     }
 
-    audioUrl = URL.createObjectURL(await response.blob());
-    const audio = new Audio(audioUrl);
-    currentAudio = audio;
-    currentAudioUrl = audioUrl;
+    const audioData = await response.arrayBuffer();
+    if (controller.signal.aborted) return;
 
-    await new Promise<void>((resolve, reject) => {
-      const cleanup = () => {
-        if (currentAudio === audio) {
-          currentAudio = null;
-          currentAudioUrl = null;
-          rejectCurrentAudio = null;
-        }
-        if (audioUrl) URL.revokeObjectURL(audioUrl);
-      };
+    if (!context) {
+      throw new Error('This browser does not support audio playback');
+    }
+    if (context.state !== 'running') await unlockPromise;
+    if (context.state !== 'running') await context.resume();
 
-      rejectCurrentAudio = reject;
-      audio.onplay = () => onStart?.();
-      audio.onended = () => {
-        cleanup();
-        onEnd?.();
+    const audioBuffer = await context.decodeAudioData(audioData);
+    if (controller.signal.aborted) return;
+
+    const source = context.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(context.destination);
+    currentSource = source;
+
+    await new Promise<void>((resolve) => {
+      source.onended = () => {
+        if (currentSource === source) currentSource = null;
+        try { source.disconnect(); } catch { /* Already disconnected. */ }
+        if (!controller.signal.aborted) onEnd?.();
         resolve();
       };
-      audio.onerror = () => {
-        cleanup();
-        reject(new Error('Audio playback failed'));
-      };
-      void audio.play().catch((error: unknown) => {
-        cleanup();
-        reject(error);
-      });
+      onStart?.();
+      source.start();
     });
   } catch (error) {
-    if (audioUrl && currentAudioUrl !== audioUrl) URL.revokeObjectURL(audioUrl);
     if (!isAbortError(error)) {
-      console.error('[TTS] ElevenLabs male voice failed:', error);
+      console.error('[TTS] ElevenLabs male voice playback failed:', error);
       onError?.(error);
     }
   } finally {

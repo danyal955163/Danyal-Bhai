@@ -16,19 +16,22 @@ export async function GET() {
       cache: 'no-store',
     });
 
-    // Do not return the key, its prefix, personal account data, or raw provider error bodies.
+    // This checks account-read access only. Restricted speech-only keys can receive 401 here
+    // and still successfully synthesize audio through /v1/text-to-speech.
     return NextResponse.json({
       has_key: true,
-      user_check: {
+      account_check: {
         status: response.status,
         ok: response.ok,
-        error: response.ok ? null : response.status === 401 ? 'invalid_api_key' : 'provider_request_failed',
+        error: response.ok ? null : response.status === 401 ? 'account_endpoint_unauthorized_or_key_restricted' : 'provider_request_failed',
       },
+      speech_check: 'not_tested',
     });
   } catch {
     return NextResponse.json({
       has_key: true,
-      user_check: { ok: false, error: 'provider_unreachable' },
+      account_check: { ok: false, error: 'provider_unreachable' },
+      speech_check: 'not_tested',
     });
   }
 }
