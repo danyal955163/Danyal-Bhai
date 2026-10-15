@@ -17,11 +17,12 @@ export class VoiceActivityDetector {
   private running = false;
   private loudFrames = 0;
   private lastReportedAt = 0;
+  private lastLevelReportedAt = 0;
   private startGeneration = 0;
 
   constructor(private readonly level: NoiseFilterLevel = 'medium') {}
 
-  async start(onVoiceDetected: () => void): Promise<boolean> {
+  async start(onVoiceDetected: () => void, onLevel?: (level: number) => void): Promise<boolean> {
     if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) return false;
     if (this.running) return true;
     const generation = ++this.startGeneration;
@@ -67,6 +68,14 @@ export class VoiceActivityDetector {
         }
         const rms = Math.sqrt(sumSquares / samples.length);
 
+        if (onLevel) {
+          const now = Date.now();
+          if (now - this.lastLevelReportedAt >= 50) {
+            this.lastLevelReportedAt = now;
+            onLevel(Math.round(Math.max(0, Math.min(100, (rms - threshold) * 650))));
+          }
+        }
+
         if (rms >= threshold) {
           this.loudFrames += 1;
           const now = Date.now();
@@ -104,5 +113,6 @@ export class VoiceActivityDetector {
       this.audioContext = null;
     }
     this.loudFrames = 0;
+    this.lastLevelReportedAt = 0;
   }
 }

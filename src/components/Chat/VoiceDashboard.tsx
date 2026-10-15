@@ -11,6 +11,8 @@ interface VoiceDashboardProps {
   uiLanguage: string;
   isSpeaking: boolean;
   isListening: boolean;
+  micLevel: number;
+  aiLevel: number;
   isLoading: boolean;
   statusText: string;
   voiceEnabled: boolean;
@@ -31,6 +33,8 @@ export default function VoiceDashboard({
   uiLanguage,
   isSpeaking,
   isListening,
+  micLevel,
+  aiLevel,
   isLoading,
   statusText,
   voiceEnabled,
@@ -64,7 +68,11 @@ export default function VoiceDashboard({
     return () => window.clearInterval(timer);
   }, []);
 
-  const activityColor = isSpeaking ? 'bg-emerald-500' : isListening ? 'bg-rose-500' : isLoading ? 'bg-amber-500' : 'bg-teal-500';
+  const activeLevel = isSpeaking ? aiLevel : isListening ? micLevel : 0;
+  const levelRatio = Math.max(0, Math.min(100, activeLevel)) / 100;
+  const ringScale = 1 + levelRatio * 0.4;
+  const ringOpacity = activeLevel > 2 ? 0.2 + levelRatio * 0.6 : 0;
+  const activityColor = isSpeaking || micLevel > 2 ? 'bg-emerald-500' : isListening ? 'bg-teal-500' : isLoading ? 'bg-amber-500' : 'bg-teal-500';
 
   return (
       <main lang={uiLanguage} dir={uiLanguage === 'ur-PK' || uiLanguage === 'ps-AF' ? 'rtl' : 'ltr'} className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-gradient-to-br from-emerald-50 via-sky-50 to-amber-50 text-slate-800">
@@ -91,29 +99,27 @@ export default function VoiceDashboard({
 
       <section className="relative z-10 flex flex-1 flex-col items-center justify-center px-5 pb-6 pt-2">
         <div className="relative flex items-center justify-center">
-          {(isListening || isSpeaking) && <motion.div aria-hidden="true" className={`absolute inset-0 rounded-full ${isSpeaking ? 'bg-emerald-400/25' : 'bg-rose-400/20'}`} animate={{ scale: [1, 1.38, 1.62], opacity: [0.5, 0.2, 0] }} transition={{ duration: isSpeaking ? 1.35 : 1.7, repeat: motionReduced ? 0 : Infinity, ease: 'easeOut' }} />}
-          {isListening && <motion.div aria-hidden="true" className="absolute inset-0 rounded-full border-2 border-rose-400/70" animate={{ scale: [1, 1.5], opacity: [0.65, 0] }} transition={{ duration: 1.5, repeat: motionReduced ? 0 : Infinity, ease: 'easeOut' }} />}
+          {(isListening || isSpeaking) && <motion.div aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-full bg-emerald-400/25" animate={{ scale: ringScale, opacity: ringOpacity }} transition={{ duration: 0.12, ease: 'easeOut' }} />}
+          {(isListening || isSpeaking) && <motion.div aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-full border-2 border-emerald-400/70" animate={{ scale: ringScale, opacity: ringOpacity }} transition={{ duration: 0.1, ease: 'easeOut' }} />}
           <motion.div
-            className={`relative h-56 w-56 overflow-hidden rounded-full border-[5px] border-white bg-gradient-to-br from-amber-300 to-orange-500 shadow-[0_22px_70px_rgba(15,118,110,0.22)] sm:h-72 sm:w-72 ${isSpeaking ? 'ring-8 ring-emerald-300/45' : isListening ? 'ring-8 ring-rose-300/40' : 'ring-4 ring-white/50'}`}
-            animate={motionReduced ? undefined : isSpeaking
-              ? { scale: [1, 1.035, 1.015, 1.04, 1], rotate: [0, -1, 1, -0.7, 0], y: [0, -5, -2, -5, 0] }
-              : isListening ? { scale: [1, 1.035, 1] } : { scale: [1, 1.012, 1] }}
-            transition={{ duration: isSpeaking ? 0.95 : isListening ? 1.55 : 3.8, repeat: motionReduced ? 0 : Infinity, ease: 'easeInOut' }}
+            className={`relative h-56 w-56 overflow-hidden rounded-full border-[5px] border-white bg-gradient-to-br from-amber-300 to-orange-500 shadow-[0_22px_70px_rgba(15,118,110,0.22)] sm:h-72 sm:w-72 ${activeLevel > 2 ? 'ring-8 ring-emerald-300/45' : 'ring-4 ring-white/50'}`}
+            animate={motionReduced ? undefined : { scale: 1 + levelRatio * 0.045, rotate: isSpeaking ? levelRatio * 0.8 : 0, y: isSpeaking ? -levelRatio * 4 : 0 }}
+            transition={{ duration: 0.1, ease: 'easeOut' }}
           >
             {avatarFailed ? (
               <div className="flex h-full w-full items-center justify-center text-7xl font-black text-white">M</div>
             ) : (
               <img src={photoUrl} alt="Me AI assistant" onError={() => setAvatarFailed(true)} className="h-full w-full object-cover" style={{ transform: blink ? 'scaleY(0.98)' : 'scaleY(1)', transition: 'transform 140ms' }} />
             )}
-            {isSpeaking && <motion.div aria-hidden="true" className="absolute bottom-12 left-1/2 h-3 w-16 -translate-x-1/2 rounded-full bg-rose-400/55 blur-md" animate={{ scaleX: [0.9, 1.35, 0.9], opacity: [0.45, 0.9, 0.45] }} transition={{ duration: 0.2, repeat: motionReduced ? 0 : Infinity }} />}
+            {isSpeaking && <motion.div aria-hidden="true" className="absolute bottom-12 left-1/2 h-3 w-16 -translate-x-1/2 rounded-full bg-emerald-400/60 blur-md" animate={{ scaleX: 0.6 + levelRatio * 0.9, opacity: 0.15 + levelRatio * 0.75 }} transition={{ duration: 0.08, ease: 'easeOut' }} />}
           </motion.div>
           {(isSpeaking || isListening) && <div aria-hidden="true" className="absolute -bottom-9 left-1/2 flex h-7 -translate-x-1/2 items-end gap-1">
-            {[0.55, 0.85, 1, 0.7, 0.95].map((height, index) => <motion.span key={index} className={`w-1.5 rounded-full ${isSpeaking ? 'bg-emerald-500' : 'bg-rose-500'}`} animate={motionReduced ? undefined : { height: [`${height * 28}%`, `${height * 100}%`, `${height * 28}%`] }} transition={{ duration: 0.48 + index * 0.09, repeat: motionReduced ? 0 : Infinity, delay: index * 0.08 }} />)}
+            {[0.4, 0.7, 1, 0.7, 0.4].map((weight, index) => <motion.span key={index} className="w-1.5 rounded-full bg-emerald-500" animate={{ height: `${Math.max(15, activeLevel * weight)}%` }} transition={{ duration: 0.1, ease: 'easeOut' }} />)}
           </div>}
         </div>
 
         <div className="mt-14 flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-4 py-2 shadow-sm backdrop-blur" role="status" aria-live="polite">
-          <span className={`h-2.5 w-2.5 rounded-full ${activityColor} ${isListening || isSpeaking || isLoading ? 'animate-pulse' : ''}`} />
+          <span className={`h-2.5 w-2.5 rounded-full ${activityColor} ${activeLevel > 2 ? 'animate-pulse' : ''}`} />
           <span className="text-sm font-semibold text-slate-700">{statusText}</span>
         </div>
         <p className="mt-3 text-center text-sm font-medium text-slate-500">{copy.subtitle}</p>

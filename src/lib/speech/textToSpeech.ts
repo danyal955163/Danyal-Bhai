@@ -4,6 +4,7 @@ export interface SpeakOptions {
   voiceTone?: 'deep' | 'natural';
   onStart?: () => void;
   onEnd?: () => void;
+  onLevel?: (level: number) => void;
   onError?: (error?: unknown) => void;
 }
 
@@ -16,6 +17,63 @@ let currentAudioUrl: string | null = null;
 let currentContext: AudioContext | null = null;
 let currentSource: AudioBufferSourceNode | null = null;
 let currentRequest: AbortController | null = null;
+let currentOutputLevelCleanup: (() => void) | null = null;
+
+function stopOutputLevelMonitoring() {
+  const cleanup = currentOutputLevelCleanup;
+  currentOutputLevelCleanup = null;
+  cleanup?.();
+}
+
+function monitorOutputNode(source: AudioNode, onLevel: (level: number) => void): boolean {
+  const context = currentContext;
+  if (!context || context.state !== 'running') return false;
+
+  stopOutputLevelMonitoring();
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.75;
+  try {
+    source.connect(analyser);
+    analyser.connect(context.destination);
+  } catch (error) {
+    try { source.disconnect(analyser); } catch { /* Source was not connected. */ }
+    try { analyser.disconnect(); } catch { /* Analyzer was not connected. */ }
+    console.info('[TTS] Could not connect the output level analyzer:', error);
+    return false;
+  }
+
+  const samples = new Uint8Array(analyser.fftSize);
+  let frameId: number | null = null;
+  let lastReportedAt = 0;
+  const cleanup = () => {
+    if (frameId !== null) window.cancelAnimationFrame(frameId);
+    frameId = null;
+    try { source.disconnect(analyser); } catch { /* Source may already be disconnected. */ }
+    try { analyser.disconnect(); } catch { /* Analyzer may already be disconnected. */ }
+    onLevel(0);
+  };
+  currentOutputLevelCleanup = cleanup;
+
+  const sample = () => {
+    if (currentOutputLevelCleanup !== cleanup) return;
+    analyser.getByteTimeDomainData(samples);
+    let sumSquares = 0;
+    for (const sample of samples) {
+      const centered = (sample - 128) / 128;
+      sumSquares += centered * centered;
+    }
+    const rms = Math.sqrt(sumSquares / samples.length);
+    const now = Date.now();
+    if (now - lastReportedAt >= 50) {
+      lastReportedAt = now;
+      onLevel(Math.round(Math.max(0, Math.min(100, rms * 260))));
+    }
+    frameId = window.requestAnimationFrame(sample);
+  };
+  sample();
+  return true;
+}
 
 function getAudioContext() {
   if (typeof window === 'undefined') return null;
@@ -76,6 +134,7 @@ function splitSpeechText(text: string): string[] {
 }
 
 function releaseAudio(audio: HTMLAudioElement, audioUrl: string) {
+  stopOutputLevelMonitoring();
   audio.onplaying = null;
   audio.onended = null;
   audio.onerror = null;
@@ -89,6 +148,7 @@ export function stopSpeaking(): void {
 
   const request = currentRequest;
   currentRequest = null;
+  stopOutputLevelMonitoring();
 
   const audio = currentAudio;
   const audioUrl = currentAudioUrl;
@@ -121,6 +181,7 @@ export async function speak({
   voiceTone = 'deep',
   onStart,
   onEnd,
+  onLevel,
   onError,
 }: SpeakOptions): Promise<void> {
   stopSpeaking();
@@ -177,6 +238,20 @@ export async function speak({
       currentAudio = audio;
       currentAudioUrl = audioUrl;
 
+      if (onLevel && context?.state === 'running') {
+        let mediaSource: MediaElementAudioSourceNode | null = null;
+        try {
+          mediaSource = context.createMediaElementSource(audio);
+          if (!monitorOutputNode(mediaSource, onLevel)) mediaSource.connect(context.destination);
+        } catch (error) {
+          if (mediaSource) {
+            try { mediaSource.connect(context.destination); } catch { /* Preserve the default audio path when possible. */ }
+          }
+          onLevel(0);
+          console.info('[TTS] Audio level tracking is unavailable for this chunk:', error);
+        }
+      }
+
       try {
         await new Promise<void>((resolve, reject) => {
           let settled = false;
@@ -223,7 +298,7 @@ export async function speak({
 
         const source = context.createBufferSource();
         source.buffer = audioBuffer;
-        source.connect(context.destination);
+        if (!onLevel || !monitorOutputNode(source, onLevel)) source.connect(context.destination);
         currentSource = source;
 
         await new Promise<void>((resolve, reject) => {
@@ -233,6 +308,7 @@ export async function speak({
             settled = true;
             controller.signal.removeEventListener('abort', handleAbort);
             source.onended = null;
+            stopOutputLevelMonitoring();
             if (currentSource === source) currentSource = null;
             try { source.disconnect(); } catch { /* Already disconnected. */ }
             if (error) reject(error);

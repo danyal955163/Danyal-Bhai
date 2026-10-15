@@ -28,6 +28,7 @@ const WELCOME_MESSAGES: Record<string, string> = {
 const WELCOME_CONTENTS = new Set(Object.values(WELCOME_MESSAGES));
 const CHAT_SESSION_KEY = 'me-ai.active-chat.v1';
 const CHAT_SESSION_ENDED_KEY = 'me-ai.active-chat-ended';
+const MIC_PERMISSION_KEY = 'mic_permission';
 
 function detectMessageLanguage(text: string, preferredLanguage: string): string {
   if (!text.trim()) return preferredLanguage;
@@ -80,6 +81,8 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeakingState] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
+  const [aiLevel, setAiLevel] = useState(0);
   const [mode, setMode] = useState<ChatMode>('welcome');
   const [sessionReady, setSessionReady] = useState(false);
   const [avatarPhoto] = useState('/avatar/avatar-photo.jpg');
@@ -102,6 +105,9 @@ export default function ChatPage() {
   const welcomeShownRef = useRef(false);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const vadRef = useRef<VoiceActivityDetector | null>(null);
+  const isLoadingRef = useRef(false);
+  const micPermissionBlockedRef = useRef(false);
+  const micPermissionNoticeShownRef = useRef(false);
   const vadReadyRef = useRef(false);
   const lastVadVoiceAtRef = useRef(0);
   const silenceTimerRef = useRef<number | null>(null);
@@ -125,6 +131,8 @@ export default function ChatPage() {
   function updateIsSpeaking(value: boolean) {
     isSpeakingRef.current = value;
     setIsSpeakingState(value);
+    if (value) setMicLevel(0);
+    else setAiLevel(0);
   }
 
   function applyPreferences(preferences: AppPreferences) {
@@ -136,6 +144,7 @@ export default function ChatPage() {
     voiceEnabledRef.current = preferences.voiceEnabled;
     autoListenEnabledRef.current = preferences.autoListen;
     currentLanguageRef.current = preferences.language;
+    if (recognitionRef.current) recognitionRef.current.lang = preferences.language;
   }
 
   useEffect(() => {
@@ -143,6 +152,13 @@ export default function ChatPage() {
   }, [messages]);
 
   useEffect(() => {
+    try {
+      const permission = window.localStorage.getItem(MIC_PERMISSION_KEY);
+      if (permission === 'granted' || permission === 'denied') {
+        console.info('[Mic] Permission status previously observed:', permission);
+        micPermissionBlockedRef.current = permission === 'denied';
+      }
+    } catch { /* Browser storage is optional; browser permissions remain authoritative. */ }
     let preferences = loadPreferences();
     if (preferences.backgroundMode && !isBackgroundAudioEnabled()) {
       preferences = { ...preferences, backgroundMode: false };
@@ -159,6 +175,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!isListening) {
+      setMicLevel(0);
       vadRef.current?.stop();
       vadRef.current = null;
       vadReadyRef.current = false;
@@ -171,8 +188,18 @@ export default function ChatPage() {
     vadRef.current = detector;
     vadReadyRef.current = false;
     lastVadVoiceAtRef.current = 0;
-    void detector.start(() => { lastVadVoiceAtRef.current = Date.now(); }).then((started) => {
-      if (!cancelled && vadRef.current === detector) vadReadyRef.current = started;
+    void detector.start(
+      () => { lastVadVoiceAtRef.current = Date.now(); },
+      (level) => { if (!isSpeakingRef.current) setMicLevel(level); },
+    ).then((started) => {
+      if (!cancelled && vadRef.current === detector) {
+        vadReadyRef.current = started;
+        if (started) {
+          micPermissionBlockedRef.current = false;
+          micPermissionNoticeShownRef.current = false;
+          try { window.localStorage.setItem(MIC_PERMISSION_KEY, 'granted'); } catch { /* Browser storage is optional. */ }
+        }
+      }
     });
 
     return () => {
@@ -214,6 +241,7 @@ export default function ChatPage() {
 
   function scheduleAutoListen() {
     cancelAutoListen();
+    if (micPermissionBlockedRef.current || (listenRequestedRef.current && recognitionRef.current)) return;
     autoListenTimerRef.current = window.setTimeout(() => {
       autoListenTimerRef.current = null;
       if (modeRef.current === 'voice' && (autoListenEnabledRef.current || cameraOpenRef.current)) startVoiceRecognition(false);
@@ -225,11 +253,10 @@ export default function ChatPage() {
     silenceTimerRef.current = window.setTimeout(() => {
       silenceTimerRef.current = null;
       const fullText = `${finalTranscriptRef.current} ${interimTranscriptRef.current}`.replace(/\s+/g, ' ').trim();
-      if (fullText.length <= 1) return;
-      stopVoiceRecognition();
-      if (runCameraVoiceCommand(fullText)) {
-        if (modeRef.current === 'voice' && (autoListenEnabledRef.current || cameraOpenRef.current)) scheduleAutoListen();
-      } else {
+      finalTranscriptRef.current = '';
+      interimTranscriptRef.current = '';
+      if (fullText.length <= 1 || isLoadingRef.current) return;
+      if (!runCameraVoiceCommand(fullText)) {
         void handleSend(fullText, [], currentLanguageRef.current);
       }
     }, 2_000);
@@ -240,7 +267,7 @@ export default function ChatPage() {
     spokenTextRef.current = text;
     if (!voiceEnabledRef.current) {
       updateIsSpeaking(false);
-      if ((autoListen && autoListenEnabledRef.current) || cameraOpenRef.current) scheduleAutoListen();
+      if (!listenRequestedRef.current && ((autoListen && autoListenEnabledRef.current) || cameraOpenRef.current)) scheduleAutoListen();
       return;
     }
     cancelAutoListen();
@@ -249,6 +276,7 @@ export default function ChatPage() {
       text,
       language,
       voiceTone: voiceToneRef.current,
+      onLevel: setAiLevel,
       onStart: () => {
         updateIsSpeaking(true);
         startVoiceRecognition(true);
@@ -256,18 +284,19 @@ export default function ChatPage() {
       onEnd: () => {
         updateIsSpeaking(false);
         spokenTextRef.current = '';
-        stopVoiceRecognition();
-        if ((autoListen && autoListenEnabledRef.current) || cameraOpenRef.current) scheduleAutoListen();
+        interruptMonitorRef.current = false;
+        if (!listenRequestedRef.current && ((autoListen && autoListenEnabledRef.current) || cameraOpenRef.current)) scheduleAutoListen();
       },
       onError: (error) => {
         updateIsSpeaking(false);
-        stopVoiceRecognition();
+        spokenTextRef.current = '';
+        interruptMonitorRef.current = false;
         console.error('Edge-TTS voice is unavailable:', error);
         const hasHttpStatus = typeof error === 'object' && error !== null && 'status' in error;
         toast.error(hasHttpStatus
           ? 'Edge-TTS نے error دیا۔ دوبارہ کوشش کریں یا deployment logs چیک کریں۔'
           : 'آواز browser میں play نہیں ہو سکی۔ دوبارہ tap کر کے کوشش کریں۔');
-        if ((autoListen && autoListenEnabledRef.current) || cameraOpenRef.current) scheduleAutoListen();
+        if (!listenRequestedRef.current && ((autoListen && autoListenEnabledRef.current) || cameraOpenRef.current)) scheduleAutoListen();
       },
     });
   }
@@ -282,6 +311,7 @@ export default function ChatPage() {
     revokeMessageImageUrls();
     updateIsSpeaking(false);
     setIsListening(false);
+    isLoadingRef.current = false;
     setIsLoading(false);
     conversationIdRef.current = null;
     setCurrentConversationId(null);
@@ -332,6 +362,7 @@ export default function ChatPage() {
     revokeMessageImageUrls();
     updateIsSpeaking(false);
     setIsListening(false);
+    isLoadingRef.current = true;
     setIsLoading(true);
 
     try {
@@ -362,7 +393,10 @@ export default function ChatPage() {
       console.error('Could not open conversation:', error);
       toast.error('Could not open this chat');
     } finally {
-      if (generation === chatGenerationRef.current) setIsLoading(false);
+      if (generation === chatGenerationRef.current) {
+        isLoadingRef.current = false;
+        setIsLoading(false);
+      }
     }
   }
 
@@ -495,6 +529,8 @@ export default function ChatPage() {
     updateIsSpeaking(false);
     modeRef.current = 'voice';
     setMode('voice');
+    micPermissionBlockedRef.current = false;
+    startVoiceRecognition(false);
     if (messages.length === 0) {
       const welcome = WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE;
       setMessages([{ role: 'assistant', content: welcome }]);
@@ -524,6 +560,7 @@ export default function ChatPage() {
   function changeLanguage(language: string) {
     setCurrentLanguage(language);
     currentLanguageRef.current = language;
+    if (recognitionRef.current) recognitionRef.current.lang = language;
     savePreferences({ ...loadPreferences(), language });
   }
 
@@ -568,6 +605,7 @@ export default function ChatPage() {
   }
 
   async function handleSend(text: string, images: File[] = [], languageOverride?: string) {
+    if (isLoadingRef.current) return;
     const generation = chatGenerationRef.current;
     const cleanedText = text.trim();
     const requestLanguage = languageOverride ?? detectMessageLanguage(cleanedText, currentLanguageRef.current);
@@ -598,6 +636,7 @@ export default function ChatPage() {
     );
     imageUrls.forEach((url) => messageImageUrlsRef.current.add(url));
     setMessages((existing) => [...existing, userMessage]);
+    isLoadingRef.current = true;
     setIsLoading(true);
 
     try {
@@ -621,7 +660,6 @@ export default function ChatPage() {
       if (generation !== chatGenerationRef.current) return;
       if (!response.ok || !data.reply) {
         toast.error(data.error ?? 'Failed to get a response');
-        if (modeRef.current === 'voice' && autoListenEnabledRef.current) scheduleAutoListen();
         return;
       }
       const assistantMessage: Message = { role: 'assistant', content: data.reply };
@@ -631,9 +669,11 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Chat request failed:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to send message');
-      if (modeRef.current === 'voice' && autoListenEnabledRef.current) scheduleAutoListen();
     } finally {
-      if (generation === chatGenerationRef.current) setIsLoading(false);
+      if (generation === chatGenerationRef.current) {
+        isLoadingRef.current = false;
+        setIsLoading(false);
+      }
     }
   }
 
@@ -652,6 +692,7 @@ export default function ChatPage() {
     vadReadyRef.current = false;
     finalTranscriptRef.current = '';
     interimTranscriptRef.current = '';
+    setMicLevel(0);
     if (updateUi) setIsListening(false);
   }
 
@@ -659,9 +700,14 @@ export default function ChatPage() {
     if (recognitionRef.current) {
       if (interruptOnly) {
         interruptMonitorRef.current = true;
-        return;
+      } else {
+        interruptMonitorRef.current = false;
+        if (resetTranscript) {
+          finalTranscriptRef.current = '';
+          interimTranscriptRef.current = '';
+        }
       }
-      stopVoiceRecognition();
+      return;
     }
 
     const recognition = createSpeechRecognition(currentLanguageRef.current);
@@ -682,7 +728,7 @@ export default function ChatPage() {
     setIsListening(true);
 
     recognition.onresult = (event) => {
-      if (!listenRequestedRef.current) return;
+      if (!listenRequestedRef.current || isLoadingRef.current) return;
       let acceptedSpeech = false;
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
@@ -701,6 +747,7 @@ export default function ChatPage() {
         if (interruptMonitorRef.current && isSpeakingRef.current) {
           stopSpeaking();
           updateIsSpeaking(false);
+          spokenTextRef.current = '';
           interruptMonitorRef.current = false;
         }
 
@@ -712,7 +759,12 @@ export default function ChatPage() {
         }
         acceptedSpeech = true;
       }
-      if (acceptedSpeech) scheduleSilenceSubmission();
+      if (acceptedSpeech) {
+        micPermissionBlockedRef.current = false;
+        micPermissionNoticeShownRef.current = false;
+        try { window.localStorage.setItem(MIC_PERMISSION_KEY, 'granted'); } catch { /* Browser storage is optional. */ }
+        scheduleSilenceSubmission();
+      }
     };
 
     recognition.onerror = (event) => {
@@ -723,11 +775,18 @@ export default function ChatPage() {
       if (recognitionRef.current === recognition) recognitionRef.current = null;
       if (code === 'not-allowed' || code === 'service-not-allowed') {
         listenRequestedRef.current = false;
+        micPermissionBlockedRef.current = true;
+        cancelSilenceTimer();
         vadRef.current?.stop();
         vadRef.current = null;
         vadReadyRef.current = false;
         setIsListening(false);
-        toast.error('Microphone permission is required for voice input.');
+        setMicLevel(0);
+        try { window.localStorage.setItem(MIC_PERMISSION_KEY, 'denied'); } catch { /* Browser storage is optional. */ }
+        if (!micPermissionNoticeShownRef.current) {
+          micPermissionNoticeShownRef.current = true;
+          toast.error('Microphone permission is required for voice input. Allow it in browser settings, then tap the microphone again.');
+        }
       } else if (code !== 'no-speech' && code !== 'aborted') {
         toast.error('Could not recognize voice. Check microphone permission.');
       }
@@ -737,9 +796,9 @@ export default function ChatPage() {
       if (recognitionRef.current === recognition) recognitionRef.current = null;
       if (!listenRequestedRef.current || modeRef.current !== 'voice') {
         setIsListening(false);
+        setMicLevel(0);
         return;
       }
-      setIsListening(false);
       cancelInterruptRetry();
       interruptRetryTimerRef.current = window.setTimeout(() => {
         interruptRetryTimerRef.current = null;
@@ -756,6 +815,7 @@ export default function ChatPage() {
       recognitionRef.current = null;
       listenRequestedRef.current = false;
       setIsListening(false);
+      setMicLevel(0);
       if (!interruptOnly) toast.error('Could not start voice input');
     }
   }
@@ -768,16 +828,18 @@ export default function ChatPage() {
       stopVoiceRecognition();
       return;
     }
+    micPermissionBlockedRef.current = false;
     startVoiceRecognition(false);
   }
 
   function openCamera() {
     stopSpeaking();
     updateIsSpeaking(false);
-    stopVoiceRecognition();
+    spokenTextRef.current = '';
+    interruptMonitorRef.current = false;
     cameraOpenRef.current = true;
     setCameraOpen(true);
-    if (modeRef.current === 'voice' && !recognitionRef.current) startVoiceRecognition(false);
+    if (modeRef.current === 'voice' && !listenRequestedRef.current) startVoiceRecognition(false);
   }
 
   function closeCamera() {
@@ -842,6 +904,8 @@ export default function ChatPage() {
           photoUrl={avatarPhoto}
           isSpeaking={isSpeaking}
           isListening={isListening}
+          micLevel={micLevel}
+          aiLevel={aiLevel}
           isLoading={isLoading}
           statusText={uiLanguage === 'ur-PK'
             ? isLoading ? 'جواب تیار ہو رہا ہے…' : isSpeaking && isListening ? 'بول رہا ہوں · آپ کی بات سن رہا ہوں' : isSpeaking ? 'بول رہا ہوں…' : isListening ? 'سن رہا ہوں…' : 'تیار ہوں — بات شروع کریں'
