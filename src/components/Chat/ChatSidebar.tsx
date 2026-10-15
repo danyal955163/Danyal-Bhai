@@ -18,10 +18,10 @@ function makeTitle(text: string) {
   return topic.length > 52 ? `${topic.slice(0, 52)}…` : topic;
 }
 
-const LABELS: Record<string, { title: string; newChat: string; loading: string; signIn: string; loadError: string; empty: string }> = {
-  'ur-PK': { title: 'چیٹ کے موضوعات', newChat: 'نیا چیٹ', loading: 'چیٹس لوڈ ہو رہی ہیں…', signIn: 'محفوظ چیٹس دیکھنے کے لیے سائن اِن کریں۔', loadError: 'چیٹ ہسٹری لوڈ نہیں ہو سکی۔', empty: 'ابھی کوئی چیٹ نہیں' },
-  'ps-AF': { title: 'د خبرو موضوعات', newChat: 'نوې خبرې', loading: 'خبرې لوډ کېږي…', signIn: 'د خوندي خبرو د لیدلو لپاره ننوځئ.', loadError: 'د خبرو مخینه نه شوه لوډېدلای.', empty: 'تر اوسه هېڅ خبرې نشته' },
-  'en-US': { title: 'Chat topics', newChat: 'New chat', loading: 'Loading chats…', signIn: 'Sign in to view saved chats.', loadError: 'Could not load chat history.', empty: 'No chats yet' },
+const LABELS: Record<string, { title: string; newChat: string; loading: string; signIn: string; loadError: string; empty: string; close: string; dateLocale: string }> = {
+  'ur-PK': { title: 'چیٹ کے موضوعات', newChat: 'نیا چیٹ', loading: 'چیٹس لوڈ ہو رہی ہیں…', signIn: 'محفوظ چیٹس دیکھنے کے لیے سائن اِن کریں۔', loadError: 'چیٹ ہسٹری لوڈ نہیں ہو سکی۔', empty: 'ابھی کوئی چیٹ نہیں', close: 'چیٹ ہسٹری بند کریں', dateLocale: 'ur-PK' },
+  'ps-AF': { title: 'د خبرو موضوعات', newChat: 'نوې خبرې', loading: 'خبرې لوډ کېږي…', signIn: 'د خوندي خبرو د لیدلو لپاره ننوځئ.', loadError: 'د خبرو مخینه نه شوه لوډېدلای.', empty: 'تر اوسه هېڅ خبرې نشته', close: 'د خبرو مخینه بنده کړئ', dateLocale: 'ps-AF' },
+  'en-US': { title: 'Chat topics', newChat: 'New chat', loading: 'Loading chats…', signIn: 'Sign in to view saved chats.', loadError: 'Could not load chat history.', empty: 'No chats yet', close: 'Close chat history', dateLocale: 'en-US' },
 };
 
 export default function ChatSidebar({
@@ -113,11 +113,11 @@ export default function ChatSidebar({
 
   return (
     <>
-      <button type="button" aria-label="Close chat history" className="fixed inset-0 z-40 cursor-default bg-black/45" onClick={onClose} />
-      <aside aria-label="Chat history" className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,88vw)] flex-col bg-white shadow-2xl">
+      <button type="button" aria-label={labels.close} className="fixed inset-0 z-40 cursor-default bg-black/45" onClick={onClose} />
+      <aside lang={language} dir={language === 'ur-PK' || language === 'ps-AF' ? 'rtl' : 'ltr'} aria-label={labels.title} className={`fixed inset-y-0 z-50 flex w-[min(20rem,88vw)] flex-col bg-white shadow-2xl ${language === 'ur-PK' || language === 'ps-AF' ? 'right-0' : 'left-0'}`}>
         <div className="flex h-14 items-center justify-between border-b px-4">
           <div className="flex items-center gap-2 text-gray-800"><Menu size={18} /><h2 className="font-bold">{labels.title}</h2></div>
-          <button type="button" onClick={onClose} aria-label="Close chat history" className="rounded-full p-2 hover:bg-gray-100"><X size={18} /></button>
+          <button type="button" onClick={onClose} aria-label={labels.close} className="rounded-full p-2 hover:bg-gray-100"><X size={18} /></button>
         </div>
         <button
           type="button"
@@ -142,7 +142,7 @@ export default function ChatSidebar({
             >
               <MessageSquare size={16} className="shrink-0" />
               <span className="min-w-0 flex-1 truncate text-sm">{conversation.title}</span>
-              <span className="shrink-0 text-[10px] text-gray-400">{new Date(conversation.created_at).toLocaleDateString()}</span>
+              <span className="shrink-0 text-[10px] text-gray-400">{new Date(conversation.created_at).toLocaleDateString(labels.dateLocale)}</span>
             </button>
           ))}
         </div>

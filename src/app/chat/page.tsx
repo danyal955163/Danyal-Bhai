@@ -4,10 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
-import { Camera } from 'lucide-react';
 import CameraStudio, { type CameraCommand } from '@/components/Chat/CameraStudio';
 import ChatSidebar from '@/components/Chat/ChatSidebar';
-import ScreenShareButton from '@/components/Chat/ScreenShareButton';
 import TextMode from '@/components/Chat/TextMode';
 import VoiceDashboard from '@/components/Chat/VoiceDashboard';
 import WelcomeScreen from '@/components/Chat/WelcomeScreen';
@@ -86,10 +84,10 @@ export default function ChatPage() {
   const [sessionReady, setSessionReady] = useState(false);
   const [avatarPhoto] = useState('/avatar/avatar-photo.jpg');
   const [currentLanguage, setCurrentLanguage] = useState('ur-PK');
+  const [uiLanguage, setUiLanguage] = useState('en-US');
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [noiseFilterLevel, setNoiseFilterLevel] = useState<NoiseFilterLevel>('medium');
   const [imagePickerPending, setImagePickerPending] = useState(false);
-  const [screenSharing, setScreenSharing] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraCommand, setCameraCommand] = useState<CameraCommand | null>(null);
   const [character, setCharacter] = useState('danyal');
@@ -101,9 +99,6 @@ export default function ChatPage() {
   const cameraOpenRef = useRef(false);
   const cameraCommandIdRef = useRef(0);
   const messageImageUrlsRef = useRef(new Set<string>());
-  const screenSharingRef = useRef(false);
-  const screenFrameRef = useRef<string | null>(null);
-  const screenAnalysisPendingRef = useRef(false);
   const welcomeShownRef = useRef(false);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const vadRef = useRef<VoiceActivityDetector | null>(null);
@@ -132,25 +127,9 @@ export default function ChatPage() {
     setIsSpeakingState(value);
   }
 
-  function handleScreenFrame(frame: string) {
-    screenFrameRef.current = frame;
-  }
-
-  function handleScreenStart() {
-    screenSharingRef.current = true;
-    screenAnalysisPendingRef.current = true;
-    setScreenSharing(true);
-  }
-
-  function handleScreenStop() {
-    screenSharingRef.current = false;
-    screenFrameRef.current = null;
-    screenAnalysisPendingRef.current = false;
-    setScreenSharing(false);
-  }
-
   function applyPreferences(preferences: AppPreferences) {
     setCurrentLanguage(preferences.language);
+    setUiLanguage(preferences.uiLanguage);
     setVoiceEnabled(preferences.voiceEnabled);
     setNoiseFilterLevel(preferences.noiseFilterLevel);
     voiceToneRef.current = preferences.voiceTone;
@@ -162,17 +141,6 @@ export default function ChatPage() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
-
-  useEffect(() => {
-    if (!screenSharing || !screenAnalysisPendingRef.current || isLoading || isSpeaking) return;
-    screenAnalysisPendingRef.current = false;
-    const prompt = currentLanguage === 'ur-PK'
-      ? 'میں نے اپنی اسکرین شیئر کر دی ہے۔ براہِ کرم اسے دیکھ کر اگلا قدم بتائیں۔'
-      : currentLanguage === 'ps-AF'
-        ? 'ما خپله پرده شریکه کړه. مهرباني وکړئ وګورئ او راته ووایاست چې بل څه وکړم.'
-        : 'I have shared my screen. Please look at it and tell me the next step.';
-    void handleSend(prompt);
-  }, [screenSharing, isLoading, isSpeaking, currentLanguage]);
 
   useEffect(() => {
     let preferences = loadPreferences();
@@ -248,7 +216,7 @@ export default function ChatPage() {
     cancelAutoListen();
     autoListenTimerRef.current = window.setTimeout(() => {
       autoListenTimerRef.current = null;
-      if (modeRef.current === 'voice' && autoListenEnabledRef.current) startVoiceRecognition(false);
+      if (modeRef.current === 'voice' && (autoListenEnabledRef.current || cameraOpenRef.current)) startVoiceRecognition(false);
     }, 600);
   }
 
@@ -257,10 +225,10 @@ export default function ChatPage() {
     silenceTimerRef.current = window.setTimeout(() => {
       silenceTimerRef.current = null;
       const fullText = `${finalTranscriptRef.current} ${interimTranscriptRef.current}`.replace(/\s+/g, ' ').trim();
-      if (fullText.length <= 2) return;
+      if (fullText.length <= 1) return;
       stopVoiceRecognition();
       if (runCameraVoiceCommand(fullText)) {
-        if (modeRef.current === 'voice' && autoListenEnabledRef.current) scheduleAutoListen();
+        if (modeRef.current === 'voice' && (autoListenEnabledRef.current || cameraOpenRef.current)) scheduleAutoListen();
       } else {
         void handleSend(fullText, [], currentLanguageRef.current);
       }
@@ -272,7 +240,7 @@ export default function ChatPage() {
     spokenTextRef.current = text;
     if (!voiceEnabledRef.current) {
       updateIsSpeaking(false);
-      if (autoListen && autoListenEnabledRef.current) scheduleAutoListen();
+      if ((autoListen && autoListenEnabledRef.current) || cameraOpenRef.current) scheduleAutoListen();
       return;
     }
     cancelAutoListen();
@@ -289,7 +257,7 @@ export default function ChatPage() {
         updateIsSpeaking(false);
         spokenTextRef.current = '';
         stopVoiceRecognition();
-        if (autoListen && autoListenEnabledRef.current) scheduleAutoListen();
+        if ((autoListen && autoListenEnabledRef.current) || cameraOpenRef.current) scheduleAutoListen();
       },
       onError: (error) => {
         updateIsSpeaking(false);
@@ -299,7 +267,7 @@ export default function ChatPage() {
         toast.error(hasHttpStatus
           ? 'Edge-TTS نے error دیا۔ دوبارہ کوشش کریں یا deployment logs چیک کریں۔'
           : 'آواز browser میں play نہیں ہو سکی۔ دوبارہ tap کر کے کوشش کریں۔');
-        if (autoListen && autoListenEnabledRef.current) scheduleAutoListen();
+        if ((autoListen && autoListenEnabledRef.current) || cameraOpenRef.current) scheduleAutoListen();
       },
     });
   }
@@ -604,27 +572,12 @@ export default function ChatPage() {
     const cleanedText = text.trim();
     const requestLanguage = languageOverride ?? detectMessageLanguage(cleanedText, currentLanguageRef.current);
     if (requestLanguage !== currentLanguageRef.current) changeLanguage(requestLanguage);
-    const sharingAtSubmission = screenSharingRef.current;
-    if (sharingAtSubmission && images.length > 7) {
-      toast('Screen sharing uses one image slot; only the first 7 attached images were sent.');
-    }
-    const selectedImages = images.slice(0, sharingAtSubmission ? 7 : 8);
+    const selectedImages = images.slice(0, 8);
     if (!cleanedText && selectedImages.length === 0) return;
     const imageUrls = selectedImages.map((image) => URL.createObjectURL(image));
     let imageDataUrls: string[];
-    let screenFrameForRequest: string | null = null;
     try {
-      const uploadedImageDataUrls = await Promise.all(selectedImages.map(compressImageToDataUrl));
-      screenFrameForRequest = sharingAtSubmission && screenSharingRef.current ? screenFrameRef.current : null;
-      if (sharingAtSubmission && screenSharingRef.current && !screenFrameForRequest) {
-        throw new Error('The shared screen is still loading. Wait a moment and try again.');
-      }
-      if (screenFrameForRequest && uploadedImageDataUrls.length > 7) {
-        throw new Error('When screen sharing, attach up to 7 additional images.');
-      }
-      imageDataUrls = screenFrameForRequest
-        ? [...uploadedImageDataUrls, screenFrameForRequest]
-        : uploadedImageDataUrls;
+      imageDataUrls = await Promise.all(selectedImages.map(compressImageToDataUrl));
       const totalImageChars = imageDataUrls.reduce((total, dataUrl) => total + dataUrl.length, 0);
       if (totalImageChars > 3_200_000) throw new Error('These images are too large to send together. Choose fewer images or smaller files.');
     } catch (error) {
@@ -662,7 +615,6 @@ export default function ChatPage() {
           languageLocked: Boolean(languageOverride),
           character: characterRef.current,
           images: imageDataUrls,
-          screenMode: Boolean(screenFrameForRequest),
         }),
       });
       const data = await response.json();
@@ -820,8 +772,12 @@ export default function ChatPage() {
   }
 
   function openCamera() {
+    stopSpeaking();
+    updateIsSpeaking(false);
+    stopVoiceRecognition();
     cameraOpenRef.current = true;
     setCameraOpen(true);
+    if (modeRef.current === 'voice' && !recognitionRef.current) startVoiceRecognition(false);
   }
 
   function closeCamera() {
@@ -831,9 +787,9 @@ export default function ChatPage() {
 
   function runCameraVoiceCommand(text: string) {
     const normalized = text.normalize('NFC').toLocaleLowerCase();
-    const stop = /\b(stop|finish|end)\b.{0,32}\b(record(?:ing)?|video)\b|(?:ریکارڈنگ|ویڈیو|ویډیو|ثبت).{0,24}(?:بند|ختم|روک|ودرول|بنده|کړه)/iu.test(normalized);
-    const photo = /\b(take|capture|snap)\b.{0,32}\b(photo|picture|selfie)\b|\b(photo|picture|selfie)\b.{0,24}\b(take|capture)\b|(?:تصویر|فوٹو|عکس|انځور).{0,24}(?:کھینچ|لے|لیں|لو|واخله|واخلئ|اخستل)/iu.test(normalized);
-    const record = /\b(start|begin|record)\b.{0,32}\b(video|record(?:ing)?)\b|\bvideo\b.{0,20}\b(start|record)\b|(?:ریکارڈنگ|ویڈیو|ویډیو).{0,24}(?:شروع|پیل|ریکارڈ|بنا|کرو|کر دو|ثبت|وکړه)/iu.test(normalized);
+    const stop = /\b(?:stop|finish|end|off|turn off|switch off)(?:\s+(?:the\s+)?(?:camera|video|recording))?\b|\b(?:camera|video|recording)\s+(?:off|stop)\b|(?:ویڈیو|ویډیو|ریکارڈنگ|ریکارډ|کیمرہ|کیمرا|ثبت).{0,28}(?:بند|ختم|روک|ودرول|بنده|کړه|آف|اف)|(?:بند کرو|بند کریں|آف کرو|آف کریں|روک دو|ختم کرو|بنده کړه|چالان بند کړه)/iu.test(normalized);
+    const photo = /\b(?:take|capture|snap)\b.{0,32}\b(?:photo|picture|pic|selfie)\b|\b(?:photo|picture|pic|selfie)\b.{0,24}\b(?:take|capture|click)\b|(?:تصویر|فوٹو|عکس|انځور|پکچر).{0,28}(?:کھینچ|لے|لیں|لو|واخله|واخلئ|اخستل|کش|کرو|کریں)|(?:کھینچو|کینچو).{0,20}(?:تصویر|فوٹو|پکچر|عکس)/iu.test(normalized);
+    const record = /\b(?:start|begin|record|on|turn on|switch on)\b(?:\s+(?:the\s+)?(?:video|camera|recording))?\b|\b(?:video|camera)\s+(?:on|start|record)\b|(?:ویڈیو|ویډیو|ریکارڈنگ|ریکارډ|کیمرہ|کیمرا|ثبت).{0,28}(?:شروع|پیل|ریکارڈ|بنا|بناؤ|کرو|کر دو|چالو|آن|ان|وکړه|چالان)|(?:شروع کرو|شروع کریں|آن کرو|ان کرو|چالو کرو|چالان کړه)/iu.test(normalized);
     const action: CameraCommand['action'] | null = stop ? 'stop' : photo ? 'photo' : record ? 'record' : null;
     if (!action) return false;
 
@@ -863,40 +819,18 @@ export default function ChatPage() {
   return (
     <>
       <Toaster position="top-center" />
-      <CameraStudio open={cameraOpen} onClose={closeCamera} language={currentLanguage} command={cameraCommand} />
-      {screenSharing && (
-        <div role="status" aria-live="polite" className="fixed left-0 right-0 top-14 z-40 bg-red-600 px-3 py-2 text-center text-xs font-semibold text-white shadow sm:text-sm">
-          <span aria-hidden="true" className="mr-2 animate-pulse">●</span>
-          {currentLanguage === 'ur-PK'
-            ? 'اسکرین شیئر فعال ہے — پہلی تصویر کا ابھی تجزیہ ہوگا؛ بعد کی تصاویر آپ کے پیغامات کے ساتھ جائیں گی۔'
-            : currentLanguage === 'ps-AF'
-              ? 'د سکرین شریکول فعال دي — لومړی انځور اوس تحلیل کېږي؛ وروسته انځورونه ستاسو د پیغامونو سره لېږل کېږي.'
-              : 'Screen sharing is active — one initial snapshot is analyzed; later snapshots are sent only with your messages.'}
-        </div>
-      )}
-      {mode !== 'welcome' && (
-        <>
-          <div className="fixed right-4 z-40" style={{ bottom: 'calc(6.5rem + env(safe-area-inset-bottom, 0px))' }}>
-            <ScreenShareButton onFrame={handleScreenFrame} active={screenSharing} language={currentLanguage} onStart={handleScreenStart} onStop={handleScreenStop} />
-          </div>
-          <div className="fixed right-4 z-40" style={{ bottom: 'calc(10.8rem + env(safe-area-inset-bottom, 0px))' }}>
-            <button type="button" onClick={openCamera} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/70 bg-white/90 px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-md backdrop-blur hover:bg-amber-50 hover:text-amber-800" aria-label={currentLanguage === 'ur-PK' ? 'کیمرہ کھولیں' : currentLanguage === 'ps-AF' ? 'کامره پرانیزئ' : 'Open camera'}>
-              <Camera size={18} />{currentLanguage === 'ur-PK' ? 'کیمرہ' : currentLanguage === 'ps-AF' ? 'کامره' : 'Camera'}
-            </button>
-          </div>
-        </>
-      )}
+      <CameraStudio open={cameraOpen} onClose={closeCamera} language={uiLanguage} command={cameraCommand} />
       <ChatSidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         currentConversationId={currentConversationId}
-        language={currentLanguage}
+        language={uiLanguage}
         onNewChat={handleNewChat}
         onSelectConversation={(id, language) => { void loadConversation(id, language); }}
       />
       {mode === 'welcome' ? (
         <WelcomeScreen
-          language={currentLanguage}
+          language={uiLanguage}
           onVoiceMode={enterVoiceMode}
           onTextMode={enterTextMode}
           onOpenHistory={() => setSidebarOpen(true)}
@@ -904,13 +838,14 @@ export default function ChatPage() {
         />
       ) : mode === 'voice' ? (
         <VoiceDashboard
+          uiLanguage={uiLanguage}
           photoUrl={avatarPhoto}
           isSpeaking={isSpeaking}
           isListening={isListening}
           isLoading={isLoading}
-          statusText={currentLanguage === 'ur-PK'
+          statusText={uiLanguage === 'ur-PK'
             ? isLoading ? 'جواب تیار ہو رہا ہے…' : isSpeaking && isListening ? 'بول رہا ہوں · آپ کی بات سن رہا ہوں' : isSpeaking ? 'بول رہا ہوں…' : isListening ? 'سن رہا ہوں…' : 'تیار ہوں — بات شروع کریں'
-            : currentLanguage === 'ps-AF'
+            : uiLanguage === 'ps-AF'
               ? isLoading ? 'ځواب چمتو کېږي…' : isSpeaking && isListening ? 'خبرې کوم · ستاسو غږ اورم' : isSpeaking ? 'خبرې کوم…' : isListening ? 'اورم…' : 'چمتو یم — خبرې پیل کړئ'
               : isLoading ? 'Thinking…' : isSpeaking && isListening ? 'Speaking · listening for interruption' : isSpeaking ? 'Speaking…' : isListening ? 'Listening…' : 'Ready — tap to talk'}
           voiceEnabled={voiceEnabled}
@@ -921,6 +856,7 @@ export default function ChatPage() {
           onSettings={() => router.push('/settings')}
           onTextMode={enterTextMode}
           onImageMode={enterImageMode}
+          onCamera={openCamera}
           onToggleVoice={toggleVoice}
           onLogout={() => { void handleLogout(); }}
         />
@@ -932,6 +868,7 @@ export default function ChatPage() {
           isListening={isListening}
           isLoading={isLoading}
           currentLanguage={currentLanguage}
+          uiLanguage={uiLanguage}
           onLanguageChange={changeLanguage}
           onBackToVoice={enterVoiceMode}
           onOpenHistory={() => setSidebarOpen(true)}

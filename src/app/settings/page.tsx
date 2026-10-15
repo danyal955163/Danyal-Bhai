@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, AudioLines, Camera, Info, Mic, Monitor, Volume2, VolumeX } from 'lucide-react';
+import { ArrowLeft, AudioLines, Camera, Info, Mic, Volume2, VolumeX } from 'lucide-react';
 import { Toaster, toast } from 'react-hot-toast';
 import AnimatedLogo from '@/components/Brand/AnimatedLogo';
 import { disableBackgroundAudio, enableBackgroundAudio, isBackgroundAudioEnabled } from '@/lib/audioSession';
@@ -23,13 +23,13 @@ type DevicePermission = 'microphone' | 'camera';
 
 const COPY = {
   'ur-PK': {
-    title: 'سیٹنگز', description: 'آواز، زبان اور ڈیوائس اجازتیں اپنے مطابق رکھیں۔', language: 'گفتگو اور آواز کی زبان', voice: 'آواز کے جواب', voiceHint: 'جواب پاکستانی مردانہ آواز میں سنیں۔', tone: 'آواز کا انداز', deep: 'گہری، پُر اعتماد مردانہ آواز', natural: 'قدرتی مردانہ آواز', test: 'آواز سنیں', mic: 'مائیکروفون', camera: 'کیمرہ', permission: 'اجازت دیں', granted: 'اجازت فعال ہے', denied: 'اجازت بند ہے — browser settings دیکھیں', prompt: 'ابھی اجازت نہیں دی گئی', unknown: 'اجازت کی حالت معلوم نہیں', screen: 'اسکرین شیئرنگ', screenHint: 'اسکرین شیئر صرف آپ کے منتخب کرنے پر شروع ہوگا۔ ہر بار browser کا انتخابی ڈائیلاگ کھلے گا؛ Settings سے اسے پہلے سے اجازت نہیں دی جا سکتی۔', screenButton: 'چیٹ پر جائیں', speaker: 'اسپیکر کی آواز', speakerHint: 'ویب سائٹ اسپیکر کی permission نہیں مانگتی؛ فون کا media volume بڑھائیں۔', auto: 'خودکار طور پر دوبارہ سننا', noise: 'پس منظر کے شور کو کم کرنا', background: 'پس منظر کی audio session', about: 'کیمرہ اور رازداری', privacy: 'کیمرہ صرف آپ کے بٹن یا voice command کے بعد تصویر/ویڈیو بناتا ہے۔ فائل پہلے اس ڈیوائس پر رہتی ہے؛ محفوظ کرنے کے لیے Download دبائیں۔', back: 'واپس', saved: 'ترتیب محفوظ ہو گئی', error: 'اجازت حاصل نہیں ہو سکی۔ browser میں Camera/Microphone اجازت دیں۔', info: 'Browser کی اجازت الگ سے ضروری ہے؛ ویب سائٹ اسے خاموشی سے فعال نہیں کر سکتی۔',
+    title: 'سیٹنگز', description: 'ویب سائٹ کی زبان اور اپنی گفتگو کی زبان الگ منتخب کریں۔', uiLanguage: 'ویب سائٹ کی زبان', uiLanguageHint: 'تمام مینیو، بٹن اور سیٹنگز کی زبان۔', speechLanguage: 'بات کرنے کی زبان', speechLanguageHint: 'یہ صرف AI کی گفتگو اور آواز کی زبان بدلتی ہے۔', voice: 'آواز کے جواب', voiceHint: 'جواب پاکستانی مردانہ آواز میں سنیں۔', tone: 'آواز کا انداز', deep: 'گہری، پُر اعتماد مردانہ آواز', natural: 'قدرتی مردانہ آواز', test: 'آواز سنیں', mic: 'مائیکروفون', camera: 'کیمرہ', permission: 'اجازت دیں', granted: 'اجازت فعال ہے', denied: 'اجازت بند ہے — browser settings دیکھیں', prompt: 'ابھی اجازت نہیں دی گئی', unknown: 'اجازت کی حالت معلوم نہیں', speaker: 'اسپیکر کی آواز', speakerHint: 'ویب سائٹ اسپیکر کی permission نہیں مانگتی؛ فون کا media volume بڑھائیں۔', auto: 'خودکار طور پر دوبارہ سننا', noise: 'پس منظر کے شور کو کم کرنا', background: 'پس منظر کی آڈیو', about: 'کیمرہ اور رازداری', privacy: 'کیمرہ صرف آپ کے بٹن یا voice command کے بعد تصویر/ویڈیو بناتا ہے۔ فائل اسی ڈیوائس پر رہتی ہے؛ محفوظ کرنے کے لیے Download دبائیں۔', back: 'واپس', saved: 'ترتیب محفوظ ہو گئی', error: 'اجازت حاصل نہیں ہو سکی۔ browser میں Camera/Microphone اجازت دیں۔', info: 'Browser کی اجازت الگ ہے؛ ویب سائٹ اسے خاموشی سے فعال نہیں کر سکتی۔', on: 'چالو', off: 'بند', low: 'کم', medium: 'درمیانہ — تجویز کردہ', high: 'زیادہ', backgroundHint: 'Browser پر منحصر ہے۔',
   },
   'en-US': {
-    title: 'Settings', description: 'Choose how Me AI speaks, listens, and uses device permissions.', language: 'Conversation and voice language', voice: 'Voice replies', voiceHint: 'Replies use a masculine neural voice.', tone: 'Voice tone', deep: 'Warm, deeper male voice', natural: 'Natural male voice', test: 'Test voice', mic: 'Microphone', camera: 'Camera', permission: 'Allow access', granted: 'Permission granted', denied: 'Blocked — check browser settings', prompt: 'Not granted yet', unknown: 'Permission status unavailable', screen: 'Screen sharing', screenHint: 'Screen sharing starts only when you choose it. Your browser asks you to select a screen/window each time; websites cannot pre-authorize it in Settings.', screenButton: 'Open chat', speaker: 'Speaker output', speakerHint: 'Browsers do not expose a speaker permission. Turn up your device media volume.', auto: 'Auto-listen after replies', noise: 'Background noise filter', background: 'Background audio mode', about: 'Camera and privacy', privacy: 'The camera captures only after your tap or voice command. Captures stay on this device until you tap Download.', back: 'Back', saved: 'Settings saved', error: 'Access was not granted. Allow Camera/Microphone in your browser.', info: 'Browser permission is separate; the website cannot enable it silently.',
+    title: 'Settings', description: 'Set the website language independently from the language you speak with Me AI.', uiLanguage: 'Website language', uiLanguageHint: 'Language used for menus, buttons, and settings.', speechLanguage: 'Conversation language', speechLanguageHint: 'This changes only the language Me AI speaks and listens in.', voice: 'Voice replies', voiceHint: 'Replies use a masculine neural voice.', tone: 'Voice tone', deep: 'Warm, deeper male voice', natural: 'Natural male voice', test: 'Test voice', mic: 'Microphone', camera: 'Camera', permission: 'Allow access', granted: 'Permission granted', denied: 'Blocked — check browser settings', prompt: 'Not granted yet', unknown: 'Permission status unavailable', speaker: 'Speaker output', speakerHint: 'Browsers do not expose a speaker permission. Turn up your device media volume.', auto: 'Auto-listen after replies', noise: 'Background noise filter', background: 'Background audio mode', about: 'Camera and privacy', privacy: 'The camera only captures after your tap or voice command. Files stay on this device until you tap Download.', back: 'Back', saved: 'Settings saved', error: 'Access was not granted. Allow Camera/Microphone in your browser.', info: 'Browser permission is separate; the website cannot enable it silently.', on: 'On', off: 'Off', low: 'Low', medium: 'Medium — recommended', high: 'High', backgroundHint: 'Browser dependent.',
   },
   'ps-AF': {
-    title: 'امستنې', description: 'د Me AI غږ، اورېدنه او د وسیلې اجازې وټاکئ.', language: 'د خبرو او غږ ژبه', voice: 'غږیز ځوابونه', voiceHint: 'ځوابونه په نارینه غږ اورئ.', tone: 'د غږ ډول', deep: 'تود او ژور نارینه غږ', natural: 'طبیعي نارینه غږ', test: 'غږ واورئ', mic: 'مایکروفون', camera: 'کامره', permission: 'اجازه ورکړئ', granted: 'اجازه فعاله ده', denied: 'بنده ده — د براوزر امستنې وګورئ', prompt: 'تر اوسه اجازه نه ده ورکړل شوې', unknown: 'د اجازې حالت نه دی معلوم', screen: 'سکرین شریکول', screenHint: 'سکرین شریکول یوازې ستاسو په انتخاب پیلېږي. براوزر به هر ځل د سکرین/کړکۍ د ټاکلو کړکۍ وښيي؛ په امستنو کې یې مخکې اجازه نه شي ورکول کېدای.', screenButton: 'چیټ پرانیزئ', speaker: 'د سپیکر غږ', speakerHint: 'براوزر د سپیکر اجازه نه غواړي؛ د وسیلې غږ لوړ کړئ.', auto: 'له ځواب وروسته بیا اورېدل', noise: 'د شالید شور کمول', background: 'د شالید غږ حالت', about: 'کامره او محرمیت', privacy: 'کامره یوازې ستاسو له تڼۍ یا غږیز امر وروسته عکس/ویډیو اخلي. فایل په همدې وسیله کې پاتې کېږي؛ د خوندي کولو لپاره Download کېکاږئ.', back: 'شاته', saved: 'امستنې خوندي شوې', error: 'اجازه ترلاسه نه شوه. په براوزر کې د کامرې/مایکروفون اجازه ورکړئ.', info: 'د براوزر اجازه جلا ده؛ وېبپاڼه یې په پټه نه شي فعالولای.',
+    title: 'امستنې', description: 'د وېبپاڼې ژبه او له Me AI سره د خبرو ژبه جلا وټاکئ.', uiLanguage: 'د وېبپاڼې ژبه', uiLanguageHint: 'د مینیو، تڼیو او امستنو ژبه.', speechLanguage: 'د خبرو ژبه', speechLanguageHint: 'یوازې د Me AI د خبرو او اورېدو ژبه بدلوي.', voice: 'غږیز ځوابونه', voiceHint: 'ځوابونه په نارینه غږ اورئ.', tone: 'د غږ ډول', deep: 'تود او ژور نارینه غږ', natural: 'طبیعي نارینه غږ', test: 'غږ واورئ', mic: 'مایکروفون', camera: 'کامره', permission: 'اجازه ورکړئ', granted: 'اجازه فعاله ده', denied: 'بنده ده — د براوزر امستنې وګورئ', prompt: 'تر اوسه اجازه نه ده ورکړل شوې', unknown: 'د اجازې حالت نه دی معلوم', speaker: 'د سپیکر غږ', speakerHint: 'براوزر د سپیکر اجازه نه غواړي؛ د وسیلې غږ لوړ کړئ.', auto: 'له ځواب وروسته بیا اورېدل', noise: 'د شالید شور کمول', background: 'د شالید غږ حالت', about: 'کامره او محرمیت', privacy: 'کامره یوازې ستاسو له تڼۍ یا غږیز امر وروسته عکس/ویډیو اخلي. فایل په همدې وسیله کې پاتې کېږي؛ د خوندي کولو لپاره Download کېکاږئ.', back: 'شاته', saved: 'امستنې خوندي شوې', error: 'اجازه ترلاسه نه شوه. په براوزر کې د کامرې/مایکروفون اجازه ورکړئ.', info: 'د براوزر اجازه جلا ده؛ وېبپاڼه یې په پټه نه شي فعالولای.', on: 'چالان', off: 'بند', low: 'ټیټ', medium: 'منځنی — سپارښتل شوی', high: 'لوړ', backgroundHint: 'د براوزر پورې اړه لري.',
   },
 } as const;
 
@@ -45,8 +45,8 @@ export default function SettingsPage() {
   const [ready, setReady] = useState(false);
   const [testingVoice, setTestingVoice] = useState(false);
   const [permissions, setPermissions] = useState<Record<DevicePermission, PermissionState>>({ microphone: 'unknown', camera: 'unknown' });
-  const copy = COPY[preferences.language as keyof typeof COPY] ?? COPY['ur-PK'];
-  const isRtl = preferences.language === 'ur-PK' || preferences.language === 'ps-AF';
+  const copy = COPY[preferences.uiLanguage as keyof typeof COPY] ?? COPY['ur-PK'];
+  const isRtl = preferences.uiLanguage === 'ur-PK' || preferences.uiLanguage === 'ps-AF';
 
   async function refreshPermissions() {
     const queryPermission = async (name: DevicePermission): Promise<PermissionState> => {
@@ -128,7 +128,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <main dir={isRtl ? 'rtl' : 'ltr'} lang={preferences.language} className="min-h-[100dvh] bg-[radial-gradient(ellipse_at_top,rgba(255,224,130,.34),transparent_38%),linear-gradient(145deg,#f4fbff,#fffdf7_48%,#eaf9f2)] px-4 py-5 text-slate-800 sm:px-6">
+    <main dir={isRtl ? 'rtl' : 'ltr'} lang={preferences.uiLanguage} className="min-h-[100dvh] bg-[radial-gradient(ellipse_at_top,rgba(255,224,130,.34),transparent_38%),linear-gradient(145deg,#f4fbff,#fffdf7_48%,#eaf9f2)] px-4 py-5 text-slate-800 sm:px-6">
       <Toaster position="top-center" />
       <div className="mx-auto max-w-2xl">
         <header className="mb-5 flex items-center justify-between">
@@ -141,11 +141,21 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-black tracking-tight">{copy.title}</h1>
           <p className="mt-1 text-sm text-slate-500">{copy.description}</p>
 
-          <div className="mt-6 rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
-            <label htmlFor="language" className="block text-sm font-bold">{copy.language}</label>
-            <select id="language" value={preferences.language} disabled={!ready} onChange={(event) => updatePreferences({ language: event.target.value })} className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
-              {LANGUAGES.map((language) => <option key={language.code} value={language.code}>{language.flag} {language.name} · {language.english}</option>)}
-            </select>
+          <div className="mt-6 space-y-4 rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
+            <div>
+              <label htmlFor="ui-language" className="block text-sm font-bold">{copy.uiLanguage}</label>
+              <select id="ui-language" value={preferences.uiLanguage} disabled={!ready} onChange={(event) => updatePreferences({ uiLanguage: event.target.value })} className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
+                {LANGUAGES.map((language) => <option key={language.code} value={language.code}>{language.flag} {language.name} · {language.english}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-slate-600">{copy.uiLanguageHint}</p>
+            </div>
+            <div>
+              <label htmlFor="speech-language" className="block text-sm font-bold">{copy.speechLanguage}</label>
+              <select id="speech-language" value={preferences.language} disabled={!ready} onChange={(event) => updatePreferences({ language: event.target.value })} className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
+                {LANGUAGES.map((language) => <option key={language.code} value={language.code}>{language.flag} {language.name} · {language.english}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-slate-600">{copy.speechLanguageHint}</p>
+            </div>
             <p className="mt-2 text-xs leading-5 text-slate-600">{copy.info}</p>
           </div>
 
@@ -176,29 +186,25 @@ export default function SettingsPage() {
               <button type="button" onClick={() => void requestDevicePermission('camera')} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs font-bold text-amber-900 hover:bg-amber-100"><Camera size={15} />{copy.permission}</button>
             </div>
 
-            <div className="py-4">
-              <div className="flex gap-3"><Monitor className="mt-0.5 shrink-0 text-sky-700" size={20} /><div><h2 className="text-sm font-bold">{copy.screen}</h2><p className="mt-1 text-xs leading-5 text-slate-600">{copy.screenHint}</p><Link href="/chat" className="mt-3 inline-flex items-center gap-2 rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800">{copy.screenButton}<Monitor size={14} /></Link></div></div>
-            </div>
-
             <div className="flex items-center justify-between gap-4 py-4">
               <div className="flex gap-3"><AudioLines className="mt-0.5 shrink-0 text-amber-600" size={20} /><div><h2 className="text-sm font-bold">{copy.speaker}</h2><p className="mt-0.5 text-xs text-slate-500">{copy.speakerHint}</p></div></div>
               {preferences.voiceEnabled ? <Volume2 className="shrink-0 text-emerald-700" size={20} /> : <VolumeX className="shrink-0 text-slate-400" size={20} />}
             </div>
 
             <div className="flex items-center justify-between gap-5 py-4">
-              <div className="flex gap-3"><Mic className="mt-0.5 shrink-0 text-rose-600" size={20} /><div><h2 className="text-sm font-bold">{copy.auto}</h2><p className="mt-0.5 text-xs text-slate-500">{preferences.autoListen ? 'On' : 'Off'}</p></div></div>
+              <div className="flex gap-3"><Mic className="mt-0.5 shrink-0 text-rose-600" size={20} /><div><h2 className="text-sm font-bold">{copy.auto}</h2><p className="mt-0.5 text-xs text-slate-500">{preferences.autoListen ? copy.on : copy.off}</p></div></div>
               <Toggle checked={preferences.autoListen} onChange={() => updatePreferences({ autoListen: !preferences.autoListen })} label={copy.auto} />
             </div>
 
             <div className="py-4">
               <label htmlFor="noise-filter" className="block text-sm font-bold">{copy.noise}</label>
               <select id="noise-filter" value={preferences.noiseFilterLevel} disabled={!ready} onChange={(event) => updatePreferences({ noiseFilterLevel: event.target.value as AppPreferences['noiseFilterLevel'] })} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100">
-                <option value="low">Low</option><option value="medium">Medium — recommended</option><option value="high">High</option>
+                <option value="low">{copy.low}</option><option value="medium">{copy.medium}</option><option value="high">{copy.high}</option>
               </select>
             </div>
 
             <div className="flex items-center justify-between gap-5 py-4">
-              <div className="flex gap-3"><AudioLines className="mt-0.5 shrink-0 text-amber-600" size={20} /><div><h2 className="text-sm font-bold">{copy.background}</h2><p className="mt-0.5 text-xs text-slate-500">Best effort; browser-dependent.</p></div></div>
+              <div className="flex gap-3"><AudioLines className="mt-0.5 shrink-0 text-amber-600" size={20} /><div><h2 className="text-sm font-bold">{copy.background}</h2><p className="mt-0.5 text-xs text-slate-500">{copy.backgroundHint}</p></div></div>
               <Toggle checked={preferences.backgroundMode} onChange={() => { void toggleBackgroundMode(); }} label={copy.background} />
             </div>
           </div>

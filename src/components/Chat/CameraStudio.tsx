@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Circle, Download, LoaderCircle, Square, Video, X } from 'lucide-react';
+import { Camera, Circle, Download, LoaderCircle, Square, SwitchCamera, Video, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 export type CameraCommand = { id: number; action: 'photo' | 'record' | 'stop' };
@@ -13,7 +13,7 @@ type CameraStudioProps = {
   command: CameraCommand | null;
 };
 
-function message(language: string, key: 'permission' | 'unsupported' | 'photoReady' | 'recordStarted' | 'videoReady' | 'recordUnsupported') {
+function message(language: string, key: 'permission' | 'unsupported' | 'photoReady' | 'recordStarted' | 'videoReady' | 'recordUnsupported' | 'photoCountdown' | 'cameraSwitched') {
   const copy: Record<string, Record<typeof key, string>> = {
     'ur-PK': {
       permission: 'تصویر یا ویڈیو بنانے کے لیے کیمرے کی اجازت دیں۔',
@@ -22,6 +22,8 @@ function message(language: string, key: 'permission' | 'unsupported' | 'photoRea
       recordStarted: 'ویڈیو ریکارڈنگ شروع ہو گئی۔ روکنے کے لیے Stop دبائیں یا کہیں “ریکارڈنگ بند کرو”۔',
       videoReady: 'ویڈیو تیار ہے۔ محفوظ کرنے کے لیے Download دبائیں۔',
       recordUnsupported: 'اس براؤزر میں ویڈیو ریکارڈنگ دستیاب نہیں۔',
+      photoCountdown: 'دو سیکنڈ میں تصویر کھینچی جائے گی…',
+      cameraSwitched: 'کیمرہ بدل دیا گیا۔',
     },
     'ps-AF': {
       permission: 'د انځور یا ویډیو لپاره د کامرې اجازه ورکړئ.',
@@ -30,6 +32,8 @@ function message(language: string, key: 'permission' | 'unsupported' | 'photoRea
       recordStarted: 'د ویډیو ثبت پیل شو. د بندولو لپاره Stop کېکاږئ یا ووایئ “ثبت بند کړه”.',
       videoReady: 'ویډیو چمتو ده. د خوندي کولو لپاره Download کېکاږئ.',
       recordUnsupported: 'په دې براوزر کې د ویډیو ثبت نشته.',
+      photoCountdown: 'انځور به په دوو ثانیو کې واخیستل شي…',
+      cameraSwitched: 'کامره بدله شوه.',
     },
     'en-US': {
       permission: 'Allow camera access to take a photo or record a video.',
@@ -38,6 +42,8 @@ function message(language: string, key: 'permission' | 'unsupported' | 'photoRea
       recordStarted: 'Recording started. Tap Stop or say “stop recording”.',
       videoReady: 'Video ready. Tap Download to save it.',
       recordUnsupported: 'Video recording is not available in this browser.',
+      photoCountdown: 'Taking your photo in two seconds…',
+      cameraSwitched: 'Camera switched.',
     },
   };
   return (copy[language] ?? copy['en-US'])[key];
@@ -51,6 +57,8 @@ export default function CameraStudio({ open, onClose, language, command }: Camer
   const photoUrlRef = useRef<string | null>(null);
   const videoUrlRef = useRef<string | null>(null);
   const captureGenerationRef = useRef(0);
+  const cameraSwitchGenerationRef = useRef(0);
+  const photoTimerRef = useRef<number | null>(null);
   const lastCommandIdRef = useRef(0);
   const pendingCommandRef = useRef<CameraCommand | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
@@ -59,6 +67,8 @@ export default function CameraStudio({ open, onClose, language, command }: Camer
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoExtension, setVideoExtension] = useState<'mp4' | 'webm'>('webm');
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [photoCountdown, setPhotoCountdown] = useState(0);
   const isRtl = language === 'ur-PK' || language === 'ps-AF';
 
   const revokeCaptureUrls = useCallback(() => {
@@ -154,15 +164,28 @@ export default function CameraStudio({ open, onClose, language, command }: Camer
   }, []);
 
   const runCommand = useCallback((action: CameraCommand['action']) => {
-    if (action === 'photo') void takePhoto();
+    if (action === 'photo') {
+      if (photoTimerRef.current !== null) window.clearTimeout(photoTimerRef.current);
+      setPhotoCountdown(2);
+      toast(message(language, 'photoCountdown'));
+      photoTimerRef.current = window.setTimeout(() => {
+        setPhotoCountdown(1);
+        photoTimerRef.current = window.setTimeout(() => {
+          photoTimerRef.current = null;
+          setPhotoCountdown(0);
+          void takePhoto();
+        }, 1_000);
+      }, 1_000);
+    }
     else if (action === 'record') startRecording();
     else stopRecording();
-  }, [startRecording, stopRecording, takePhoto]);
+  }, [language, startRecording, stopRecording, takePhoto]);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     captureGenerationRef.current += 1;
+    setPhotoCountdown(0);
     setError('');
     setCameraReady(false);
     setRecording(false);
@@ -174,7 +197,7 @@ export default function CameraStudio({ open, onClose, language, command }: Camer
       return;
     }
     void navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'user' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false,
     }).then((stream) => {
       if (cancelled) {
@@ -197,6 +220,9 @@ export default function CameraStudio({ open, onClose, language, command }: Camer
     return () => {
       cancelled = true;
       captureGenerationRef.current += 1;
+      cameraSwitchGenerationRef.current += 1;
+      if (photoTimerRef.current !== null) window.clearTimeout(photoTimerRef.current);
+      photoTimerRef.current = null;
       const recorder = recorderRef.current;
       if (recorder && recorder.state !== 'inactive') {
         recorder.ondataavailable = null;
@@ -241,6 +267,39 @@ export default function CameraStudio({ open, onClose, language, command }: Camer
     onClose();
   }
 
+  async function switchCamera() {
+    if (recording || !streamRef.current || !navigator.mediaDevices?.getUserMedia) return;
+    const nextFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    const requestId = ++cameraSwitchGenerationRef.current;
+    const current = streamRef.current;
+    streamRef.current = null;
+    current.getTracks().forEach((track) => track.stop());
+    setCameraReady(false);
+    setFacingMode(nextFacingMode);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: nextFacingMode }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      if (requestId !== cameraSwitchGenerationRef.current || !open) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        void videoRef.current.play().catch(() => undefined);
+      }
+      setCameraReady(true);
+      toast.success(message(language, 'cameraSwitched'));
+    } catch (switchError) {
+      if (requestId !== cameraSwitchGenerationRef.current) return;
+      console.warn('Could not switch camera:', switchError);
+      setFacingMode(facingMode);
+      setError(message(language, 'unsupported'));
+    }
+  }
+
   if (!open) return null;
 
   return (
@@ -248,7 +307,7 @@ export default function CameraStudio({ open, onClose, language, command }: Camer
       <section dir={isRtl ? 'rtl' : 'ltr'} className="w-full max-w-xl overflow-hidden rounded-[1.75rem] border border-white/70 bg-[#fffdf7] shadow-2xl">
         <header className="flex items-center justify-between border-b border-amber-100 px-4 py-3">
           <div className="flex items-center gap-2 text-slate-800"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-800"><Camera size={19} /></span><div><h2 className="font-extrabold">{language === 'ur-PK' ? 'کیمرہ اسٹوڈیو' : language === 'ps-AF' ? 'د کامرې سټوډیو' : 'Camera studio'}</h2><p className="text-[11px] text-slate-500">{language === 'ur-PK' ? 'تصویر اور ویڈیو صرف اس ڈیوائس پر رہتی ہے۔' : language === 'ps-AF' ? 'انځور او ویډیو یوازې په همدې وسیله کې پاتې کېږي.' : 'Photos and videos stay on this device.'}</p></div></div>
-          <button type="button" onClick={closeStudio} aria-label="Close camera" className="rounded-full p-2 text-slate-600 hover:bg-amber-50"><X size={20} /></button>
+          <button type="button" onClick={closeStudio} aria-label={language === 'ur-PK' ? 'کیمرہ بند کریں' : language === 'ps-AF' ? 'کامره وتړئ' : 'Close camera'} className="rounded-full p-2 text-slate-600 hover:bg-amber-50"><X size={20} /></button>
         </header>
 
         <div className="relative aspect-video bg-slate-950">
@@ -256,6 +315,8 @@ export default function CameraStudio({ open, onClose, language, command }: Camer
           {!cameraReady && !error && <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-white/80"><LoaderCircle size={18} className="animate-spin" />{language === 'ur-PK' ? 'کیمرہ کھل رہا ہے…' : language === 'ps-AF' ? 'کامره پرانیستل کېږي…' : 'Opening camera…'}</div>}
           {error && <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-white">{error}</div>}
           {recording && <div className="absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-red-600 px-3 py-1.5 text-xs font-bold text-white shadow"><span className="h-2 w-2 animate-pulse rounded-full bg-white" />REC</div>}
+          <button type="button" onClick={switchCamera} disabled={!cameraReady || recording} aria-label={language === 'ur-PK' ? 'اگلا کیمرہ' : language === 'ps-AF' ? 'بله کامره' : 'Switch camera'} className="absolute right-3 top-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-slate-950/55 px-3 py-2 text-xs font-bold text-white backdrop-blur hover:bg-slate-950/75 disabled:opacity-50"><SwitchCamera size={16} />{facingMode === 'user' ? language === 'ur-PK' ? 'بیک کیمرہ' : language === 'ps-AF' ? 'شاتنۍ کامره' : 'Back camera' : language === 'ur-PK' ? 'فرنٹ کیمرہ' : language === 'ps-AF' ? 'مخکینۍ کامره' : 'Front camera'}</button>
+          {photoCountdown > 0 && <div className="absolute inset-0 flex items-center justify-center bg-black/15"><span className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-white bg-black/40 text-4xl font-black text-white shadow-xl">{photoCountdown}</span></div>}
         </div>
 
         <div className="grid grid-cols-3 gap-2 p-3 sm:p-4">
@@ -263,7 +324,7 @@ export default function CameraStudio({ open, onClose, language, command }: Camer
           {!recording ? (
             <button type="button" onClick={startRecording} disabled={!cameraReady} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-45"><Circle size={16} fill="currentColor" />{language === 'ur-PK' ? 'ریکارڈ' : language === 'ps-AF' ? 'ثبت' : 'Record'}</button>
           ) : (
-            <button type="button" onClick={stopRecording} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-800 px-3 py-2.5 text-sm font-bold text-white hover:bg-slate-900"><Square size={15} fill="currentColor" />Stop</button>
+            <button type="button" onClick={stopRecording} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-800 px-3 py-2.5 text-sm font-bold text-white hover:bg-slate-900"><Square size={15} fill="currentColor" />{language === 'ur-PK' ? 'روکیں' : language === 'ps-AF' ? 'بند کړئ' : 'Stop'}</button>
           )}
           <button type="button" onClick={closeStudio} className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">{language === 'ur-PK' ? 'بند کریں' : language === 'ps-AF' ? 'وتړئ' : 'Close'}</button>
         </div>
@@ -271,7 +332,7 @@ export default function CameraStudio({ open, onClose, language, command }: Camer
         <div className="space-y-2 px-4 pb-4">
           {photoUrl && <a href={photoUrl} download={`me-ai-photo-${Date.now()}.jpg`} className="flex items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-950"><Download size={16} />{language === 'ur-PK' ? 'تصویر محفوظ کریں' : language === 'ps-AF' ? 'انځور خوندي کړئ' : 'Download photo'}</a>}
           {videoUrl && <a href={videoUrl} download={`me-ai-video-${Date.now()}.${videoExtension}`} className="flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-950"><Video size={16} />{language === 'ur-PK' ? 'ویڈیو محفوظ کریں' : language === 'ps-AF' ? 'ویډیو خوندي کړئ' : 'Download video'}</a>}
-          <p className="text-center text-[11px] leading-5 text-slate-500">{language === 'ur-PK' ? 'آواز سے کہیں: “تصویر کھینچو”، “ویڈیو شروع کرو”، یا “ریکارڈنگ بند کرو”۔ محفوظ کرنے کے لیے اوپر Download دبائیں۔' : language === 'ps-AF' ? 'ووایئ: “انځور واخله”، “ویډیو پیل کړه”، یا “ثبت بند کړه”. د خوندي کولو لپاره Download کېکاږئ.' : 'Say “take a picture”, “start recording”, or “stop recording”. Tap Download to save captured media.'}</p>
+          <p className="text-center text-[11px] leading-5 text-slate-500">{language === 'ur-PK' ? 'کہیں: “تصویر کھینچو” (دو سیکنڈ بعد تصویر)، “ویڈیو آن کرو”، یا “ویڈیو بند کرو”۔ ویڈیو اسی فون پر محفوظ ہوتی ہے۔' : language === 'ps-AF' ? 'ووایئ: “انځور واخله” (له دوو ثانیو وروسته)، “ویډیو چالان کړه” یا “ویډیو بنده کړه”. ویډیو په همدې موبایل کې پاتې کېږي.' : 'Say “take a picture” (2-second countdown), “turn video on”, or “turn video off”. Videos stay on this device.'}</p>
         </div>
       </section>
     </div>

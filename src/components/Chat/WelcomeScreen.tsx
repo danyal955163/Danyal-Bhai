@@ -84,7 +84,7 @@ export default function WelcomeScreen({
 
         <h1 className="max-w-md text-balance text-lg font-semibold leading-relaxed text-slate-700 sm:text-xl">{copy.tagline}</h1>
         <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
-          {language === 'en-US' ? 'Ask anything, share your screen, or capture a photo when you choose.' : language === 'ps-AF' ? 'هره پوښتنه وکړئ، سکرین شریک کړئ یا د خپلې خوښې پر مهال انځور واخلئ.' : 'اپنا سوال پوچھیں، اسکرین شیئر کریں یا اپنی مرضی سے تصویر لیں۔'}
+          {language === 'en-US' ? 'Ask anything, or use your phone camera to take a photo or record a video.' : language === 'ps-AF' ? 'هره پوښتنه وکړئ، یا د موبایل په کامره عکس او ویډیو واخلئ.' : 'اپنا سوال پوچھیں، یا موبائل کیمرے سے تصویر لیں اور ویڈیو بنائیں۔'}
         </p>
 
         <div className="mt-8 w-full space-y-3.5">

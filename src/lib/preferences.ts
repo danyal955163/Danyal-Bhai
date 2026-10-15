@@ -1,4 +1,5 @@
 export type AppPreferences = {
+  uiLanguage: string;
   language: string;
   voiceEnabled: boolean;
   voiceTone: VoiceTone;
@@ -11,6 +12,7 @@ export type NoiseFilterLevel = 'low' | 'medium' | 'high';
 export type VoiceTone = 'deep' | 'natural';
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
+  uiLanguage: 'en-US',
   language: 'ur-PK',
   voiceEnabled: true,
   voiceTone: 'deep',
@@ -30,6 +32,11 @@ export function loadPreferences(): AppPreferences {
     if (typeof value !== 'object' || value === null) return DEFAULT_PREFERENCES;
     const stored = value as Partial<AppPreferences>;
     return {
+      uiLanguage: typeof stored.uiLanguage === 'string' && SUPPORTED_LANGUAGES.has(stored.uiLanguage)
+        ? stored.uiLanguage
+        : typeof stored.language === 'string' && SUPPORTED_LANGUAGES.has(stored.language)
+          ? stored.language
+          : DEFAULT_PREFERENCES.uiLanguage,
       language: typeof stored.language === 'string' && SUPPORTED_LANGUAGES.has(stored.language)
         ? stored.language
         : DEFAULT_PREFERENCES.language,

@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Image as ImageIcon, Keyboard, LogOut, Menu, Mic, Settings, Volume2, VolumeX } from 'lucide-react';
+import { Camera, Image as ImageIcon, Keyboard, LogOut, Menu, Mic, Settings, Volume2, VolumeX } from 'lucide-react';
 import AnimatedLogo from '@/components/Brand/AnimatedLogo';
 import CharacterSelector from '@/components/Chat/CharacterSelector';
 
 interface VoiceDashboardProps {
   photoUrl: string;
+  uiLanguage: string;
   isSpeaking: boolean;
   isListening: boolean;
   isLoading: boolean;
@@ -22,10 +23,12 @@ interface VoiceDashboardProps {
   onToggleVoice: () => void;
   onLogout: () => void;
   onImageMode: () => void;
+  onCamera: () => void;
 }
 
 export default function VoiceDashboard({
   photoUrl,
+  uiLanguage,
   isSpeaking,
   isListening,
   isLoading,
@@ -40,10 +43,18 @@ export default function VoiceDashboard({
   onToggleVoice,
   onLogout,
   onImageMode,
+  onCamera,
 }: VoiceDashboardProps) {
   const [blink, setBlink] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const motionReduced = useReducedMotion();
+  const copy = {
+    'ur-PK': { history: 'چیٹ ہسٹری کھولیں', voiceOff: 'آواز بند کریں', voiceOn: 'آواز چلائیں', settings: 'سیٹنگز', logout: 'لاگ آؤٹ', subtitle: 'آواز سے بات کریں، یا نیچے تحریری چیٹ کھولیں۔', interrupt: 'آپ کی بات سن رہا ہوں', listening: 'سن رہا ہوں', wait: 'انتظار کریں', talk: 'بات شروع کریں', image: 'تصویر', text: 'تحریری چیٹ', camera: 'کیمرہ', cameraHint: 'اپنے فون کے کیمرے سے AI کی مدد کے ساتھ ویڈیو بنائیں' },
+    'ps-AF': { history: 'د خبرو مخینه پرانیزئ', voiceOff: 'غږ بند کړئ', voiceOn: 'غږ چالان کړئ', settings: 'امستنې', logout: 'وتل', subtitle: 'په غږ خبرې وکړئ، یا لاندې لیکلې خبرې پرانیزئ.', interrupt: 'ستاسو غږ اورم', listening: 'اورم', wait: 'لږ انتظار', talk: 'خبرې پیل کړئ', image: 'انځور', text: 'لیکلې خبرې', camera: 'کامره', cameraHint: 'د خپل موبایل په کامره د AI په مرسته ویډیو جوړه کړئ' },
+    'en-US': { history: 'Open chat history', voiceOff: 'Turn voice off', voiceOn: 'Turn voice on', settings: 'Settings', logout: 'Sign out', subtitle: 'Talk by voice, or switch to text chat below.', interrupt: 'Listening for interruption', listening: 'Listening', wait: 'Please wait', talk: 'Tap to talk', image: 'Image', text: 'Text chat', camera: 'Camera', cameraHint: 'Record videos with your phone camera, with AI assistance' },
+  }[uiLanguage] ?? {
+    history: 'Open chat history', voiceOff: 'Turn voice off', voiceOn: 'Turn voice on', settings: 'Settings', logout: 'Sign out', subtitle: 'Talk by voice, or switch to text chat below.', interrupt: 'Listening for interruption', listening: 'Listening', wait: 'Please wait', talk: 'Tap to talk', image: 'Image', text: 'Text chat', camera: 'Camera', cameraHint: 'Record videos with your phone camera, with AI assistance',
+  };
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -56,7 +67,7 @@ export default function VoiceDashboard({
   const activityColor = isSpeaking ? 'bg-emerald-500' : isListening ? 'bg-rose-500' : isLoading ? 'bg-amber-500' : 'bg-teal-500';
 
   return (
-    <main className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-gradient-to-br from-emerald-50 via-sky-50 to-amber-50 text-slate-800">
+      <main lang={uiLanguage} dir={uiLanguage === 'ur-PK' || uiLanguage === 'ps-AF' ? 'rtl' : 'ltr'} className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-gradient-to-br from-emerald-50 via-sky-50 to-amber-50 text-slate-800">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
         <motion.div className="absolute -left-20 top-20 h-72 w-72 rounded-full bg-emerald-300/30 blur-3xl" animate={motionReduced ? undefined : { x: [0, 36, 0], y: [0, -26, 0], scale: [1, 1.13, 1] }} transition={{ duration: 12, repeat: motionReduced ? 0 : Infinity, ease: 'easeInOut' }} />
         <motion.div className="absolute -right-24 bottom-16 h-96 w-96 rounded-full bg-amber-300/25 blur-3xl" animate={motionReduced ? undefined : { x: [0, -30, 0], y: [0, 34, 0], scale: [1, 1.08, 1] }} transition={{ duration: 15, repeat: motionReduced ? 0 : Infinity, ease: 'easeInOut', delay: 1 }} />
@@ -64,17 +75,17 @@ export default function VoiceDashboard({
       </div>
 
       <header className="relative z-10 flex items-center justify-between px-4 pb-2 pt-4 sm:px-7">
-        <button type="button" onClick={onOpenHistory} aria-label="Open chat history" className="rounded-full bg-white/70 p-2.5 shadow-sm backdrop-blur transition hover:bg-white">
+        <button type="button" onClick={onOpenHistory} aria-label={copy.history} className="rounded-full bg-white/70 p-2.5 shadow-sm backdrop-blur transition hover:bg-white">
           <Menu size={19} />
         </button>
         <AnimatedLogo size="sm" />
         <div className="flex items-center gap-1.5">
-          <CharacterSelector current={character} onChange={onCharacterChange} />
-          <button type="button" onClick={onToggleVoice} aria-label={voiceEnabled ? 'Turn voice off' : 'Turn voice on'} title={voiceEnabled ? 'Turn voice off' : 'Turn voice on'} className="rounded-full bg-white/70 p-2.5 shadow-sm backdrop-blur transition hover:bg-white">
+          <CharacterSelector current={character} onChange={onCharacterChange} uiLanguage={uiLanguage} />
+          <button type="button" onClick={onToggleVoice} aria-label={voiceEnabled ? copy.voiceOff : copy.voiceOn} title={voiceEnabled ? copy.voiceOff : copy.voiceOn} className="rounded-full bg-white/70 p-2.5 shadow-sm backdrop-blur transition hover:bg-white">
             {voiceEnabled ? <Volume2 size={18} className="text-emerald-700" /> : <VolumeX size={18} className="text-slate-500" />}
           </button>
-          <button type="button" onClick={onSettings} aria-label="Settings" className="rounded-full bg-white/70 p-2.5 shadow-sm backdrop-blur transition hover:bg-white"><Settings size={18} /></button>
-          <button type="button" onClick={onLogout} aria-label="Sign out" className="rounded-full bg-white/70 p-2.5 text-slate-500 shadow-sm backdrop-blur transition hover:bg-white hover:text-rose-600"><LogOut size={18} /></button>
+          <button type="button" onClick={onSettings} aria-label={copy.settings} className="rounded-full bg-white/70 p-2.5 shadow-sm backdrop-blur transition hover:bg-white"><Settings size={18} /></button>
+          <button type="button" onClick={onLogout} aria-label={copy.logout} className="rounded-full bg-white/70 p-2.5 text-slate-500 shadow-sm backdrop-blur transition hover:bg-white hover:text-rose-600"><LogOut size={18} /></button>
         </div>
       </header>
 
@@ -105,16 +116,20 @@ export default function VoiceDashboard({
           <span className={`h-2.5 w-2.5 rounded-full ${activityColor} ${isListening || isSpeaking || isLoading ? 'animate-pulse' : ''}`} />
           <span className="text-sm font-semibold text-slate-700">{statusText}</span>
         </div>
-        <p className="mt-3 text-center text-sm font-medium text-slate-500">Talk by voice, or switch to text chat below.</p>
+        <p className="mt-3 text-center text-sm font-medium text-slate-500">{copy.subtitle}</p>
 
       </section>
 
       <footer className="relative z-10 flex flex-wrap items-center justify-center gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2">
-        <button type="button" onClick={onVoiceInput} disabled={isSpeaking || isLoading} aria-label={isSpeaking ? 'Listening for interruption' : isListening ? 'Stop listening' : 'Tap to talk'} className={`inline-flex min-h-12 items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white shadow-lg transition active:scale-95 disabled:cursor-default disabled:opacity-75 ${isListening ? 'bg-rose-600' : 'bg-gradient-to-r from-emerald-600 to-teal-600'}`}>
-          <Mic size={18} />{isSpeaking ? 'Listening for interruption' : isListening ? 'Listening' : isLoading ? 'Please wait' : 'Tap to talk'}
+        <button type="button" onClick={onVoiceInput} disabled={isSpeaking || isLoading} aria-label={isSpeaking ? copy.interrupt : isListening ? copy.listening : copy.talk} className={`inline-flex min-h-12 items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white shadow-lg transition active:scale-95 disabled:cursor-default disabled:opacity-75 ${isListening ? 'bg-rose-600' : 'bg-gradient-to-r from-emerald-600 to-teal-600'}`}>
+          <Mic size={18} />{isSpeaking ? copy.interrupt : isListening ? copy.listening : isLoading ? copy.wait : copy.talk}
         </button>
-        <button type="button" onClick={onImageMode} disabled={isLoading} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white disabled:opacity-50"><ImageIcon size={18} />Image</button>
-        <button type="button" onClick={onTextMode} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/70 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white"><Keyboard size={17} />Text chat</button>
+        <button type="button" onClick={onImageMode} disabled={isLoading} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white disabled:opacity-50"><ImageIcon size={18} />{copy.image}</button>
+        <button type="button" onClick={onTextMode} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/70 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white"><Keyboard size={17} />{copy.text}</button>
+        <button type="button" onClick={onCamera} className="group flex min-h-14 w-full max-w-sm items-center justify-center gap-3 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-white to-emerald-50 px-4 py-3 text-start shadow-md transition hover:-translate-y-0.5 hover:border-amber-300 hover:shadow-lg active:scale-[0.99]">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-sm transition group-hover:rotate-3"><Camera size={22} /></span>
+          <span><span className="block text-sm font-extrabold text-slate-800">{copy.camera}</span><span className="mt-0.5 block text-xs leading-4 text-slate-500">{copy.cameraHint}</span></span>
+        </button>
       </footer>
     </main>
   );

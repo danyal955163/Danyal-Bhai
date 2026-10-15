@@ -13,6 +13,7 @@ export default function ChatInterface({
   isListening,
   isLoading,
   language,
+  uiLanguage = language,
   autoOpenImagePicker,
   onImagePickerHandled,
 }: {
@@ -22,10 +23,16 @@ export default function ChatInterface({
   isListening: boolean;
   isLoading: boolean;
   language: string;
+  uiLanguage?: string;
   autoOpenImagePicker?: boolean;
   onImagePickerHandled?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const copy = uiLanguage === 'ps-AF'
+    ? 'د لیکلو یا خبرو له لارې نوې خبرې پیل کړئ'
+    : uiLanguage === 'en-US'
+      ? 'Start a conversation by typing or speaking'
+      : 'لکھ کر یا بول کر گفتگو شروع کریں';
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -36,11 +43,11 @@ export default function ChatInterface({
       <div id="chat-conversation" aria-label="Chat messages" className="min-h-0 flex-1 overflow-y-auto p-4">
         {messages.length === 0 && (
           <div className="py-8 text-center text-sm text-gray-400">
-            Start a conversation by typing or speaking
+            {copy}
           </div>
         )}
         {messages.map((message, index) => (
-          <ChatBubble key={`${message.role}-${index}`} {...message} />
+          <ChatBubble key={`${message.role}-${index}`} {...message} uiLanguage={uiLanguage} />
         ))}
         {isLoading && (
           <div className="mb-3 flex justify-start">
@@ -61,6 +68,7 @@ export default function ChatInterface({
         isListening={isListening}
         disabled={isLoading}
         language={language}
+        uiLanguage={uiLanguage}
         autoOpenImagePicker={autoOpenImagePicker}
         onImagePickerHandled={onImagePickerHandled}
       />
