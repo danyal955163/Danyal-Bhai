@@ -6,12 +6,7 @@ import { FormEvent, useState } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-
-function BrandMark() {
-  return (
-    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-yellow-600 text-2xl font-black text-white shadow-lg shadow-amber-200">D</div>
-  );
-}
+import AnimatedLogo from '@/components/Brand/AnimatedLogo';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -49,10 +44,10 @@ export default function SignupPage() {
   return (
     <section className="relative rounded-3xl border border-white/80 bg-white/95 p-7 shadow-2xl shadow-emerald-100/70 sm:p-9">
       <Toaster position="top-center" />
-      <BrandMark />
+      <div className="mx-auto flex justify-center"><AnimatedLogo size="md" /></div>
       <div className="mt-5 text-center">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Create Your Account</h1>
-        <p className="mt-2 text-sm text-slate-500">Join Danyal Bhai and start chatting</p>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Create Your Me AI Account</h1>
+        <p className="mt-2 text-sm text-slate-500">Join and start chatting by voice or text.</p>
       </div>
       <form onSubmit={handleSignup} className="mt-7 space-y-4">
         <label className="block text-sm font-medium text-slate-700">

@@ -105,6 +105,7 @@ export default function VoiceDashboard({
           <span className={`h-2.5 w-2.5 rounded-full ${activityColor} ${isListening || isSpeaking || isLoading ? 'animate-pulse' : ''}`} />
           <span className="text-sm font-semibold text-slate-700">{statusText}</span>
         </div>
+        <p className="mt-3 text-center text-sm font-medium text-slate-500">Talk by voice, or switch to text chat below.</p>
 
       </section>
 
@@ -113,7 +114,7 @@ export default function VoiceDashboard({
           <Mic size={18} />{isSpeaking ? 'Listening for interruption' : isListening ? 'Listening' : isLoading ? 'Please wait' : 'Tap to talk'}
         </button>
         <button type="button" onClick={onImageMode} disabled={isLoading} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white disabled:opacity-50"><ImageIcon size={18} />Image</button>
-        <button type="button" onClick={onTextMode} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/70 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white"><Keyboard size={17} />Text mode</button>
+        <button type="button" onClick={onTextMode} className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/70 bg-white/70 px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-white"><Keyboard size={17} />Text chat</button>
       </footer>
     </main>
   );

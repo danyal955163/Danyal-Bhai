@@ -18,14 +18,14 @@ import { createClient } from '@/lib/supabase/client';
 type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string; imageUrls?: string[] };
 type ChatMode = 'voice' | 'text';
 
-const WELCOME_MESSAGE = 'السلام علیکم، میں آپ کی کیا مدد کر سکتا ہوں؟';
+const WELCOME_MESSAGE = 'السلام علیکم! آپ کیسے ہیں؟ بتائیے، آج میں آپ کی کس طرح مدد کروں؟';
 const WELCOME_MESSAGES: Record<string, string> = {
   'ur-PK': WELCOME_MESSAGE,
   'en-US': 'Hello, how can I help you today?',
   'ps-AF': 'السلام علیکم، څنګه مرسته درسره کولی شم؟',
 };
 const WELCOME_CONTENTS = new Set(Object.values(WELCOME_MESSAGES));
-const IDLE_TIMEOUT_MS = 60 * 1000;
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 
 function detectMessageLanguage(text: string, preferredLanguage: string): string {
   if (!text.trim()) return preferredLanguage;
@@ -94,6 +94,7 @@ export default function ChatPage() {
   const screenSharingRef = useRef(false);
   const screenFrameRef = useRef<string | null>(null);
   const screenAnalysisPendingRef = useRef(false);
+  const welcomeShownRef = useRef(false);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const vadRef = useRef<VoiceActivityDetector | null>(null);
   const vadReadyRef = useRef(false);
@@ -284,7 +285,7 @@ export default function ChatPage() {
       onError: (error) => {
         updateIsSpeaking(false);
         stopVoiceRecognition();
-        console.error('Edge-TTS male voice is unavailable:', error);
+        console.error('Edge-TTS voice is unavailable:', error);
         const hasHttpStatus = typeof error === 'object' && error !== null && 'status' in error;
         toast.error(hasHttpStatus
           ? 'Edge-TTS نے error دیا۔ دوبارہ کوشش کریں یا deployment logs چیک کریں۔'
@@ -434,6 +435,14 @@ export default function ChatPage() {
     };
   }, [router]);
 
+  useEffect(() => {
+    if (!user || welcomeShownRef.current || messages.length > 0) return;
+    welcomeShownRef.current = true;
+    const greeting = WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE;
+    setMessages([{ role: 'assistant', content: greeting }]);
+    if (modeRef.current === 'voice') speakText(greeting, true, currentLanguage);
+  }, [user, messages.length, currentLanguage]);
+
   function enterVoiceMode() {
     cancelAutoListen();
     cancelInterruptRetry();
@@ -444,9 +453,11 @@ export default function ChatPage() {
     updateIsSpeaking(false);
     modeRef.current = 'voice';
     setMode('voice');
-    const welcome = WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE;
-    setMessages((existing) => [...existing, { role: 'assistant', content: welcome }]);
-    speakText(welcome, true);
+    if (messages.length === 0) {
+      const welcome = WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE;
+      setMessages([{ role: 'assistant', content: welcome }]);
+      speakText(welcome, true);
+    }
   }
 
   function enterTextMode() {

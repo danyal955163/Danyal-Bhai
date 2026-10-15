@@ -24,11 +24,25 @@ function warnIfReplyMayBeTruncated(reply: string, provider: string) {
   }
 }
 
+function removeUnrequestedGreeting(reply: string, message: string, hasPreviousUserTurn: boolean) {
+  const userStartedWithGreeting = /^\s*(?:السلام\s*علیکم|سلام|salam)(?=$|[\s،,.!?؟])/iu.test(message);
+  if (userStartedWithGreeting && !hasPreviousUserTurn) return reply;
+
+  const withoutLeadingGreeting = reply
+    .replace(/^\s*(?:وعلیکم\s*السلام|وعليكم\s*السلام|السلام\s*علیکم|السلام\s*عليكم|سلام|salam|wa\s*alaikum\s*assalam)[!؟۔،,.؛:\s—-]*/iu, '')
+    .trim();
+  if (withoutLeadingGreeting) return withoutLeadingGreeting;
+  if (/[ټډړځڅښږڼګ]/u.test(message)) return 'مهرباني وکړئ خپله پوښتنه لږ نوره روښانه کړئ.';
+  if (/[\u0600-\u06FF]/u.test(message)) return 'براہِ کرم اپنا سوال ذرا واضح کریں تاکہ میں مدد کر سکوں۔';
+  return 'Please clarify your question so I can help.';
+}
+
 const SYSTEM_PROMPT = `You are "Me AI" — a smart, friendly, helpful AI assistant on Danyal Bhai's website.
 
 CRITICAL RULES:
 
 1. LANGUAGE: Detect the user's language from their latest message and reply ONLY in the required language, without mixing languages. Urdu script → Urdu in Urdu script. Pashto script → Pashto in Pashto script. Latin-script text → English, even when the Latin words are a transliteration of Urdu or Pashto. Follow any explicit per-request language instruction below.
+   - For Urdu, use natural, everyday Pakistani Urdu in Urdu script. Prefer familiar words, clear sentence breaks, and simple spoken phrasing; avoid unnecessarily formal Arabic/Persian wording and English mixing unless it is needed.
 
 2. ANSWER EVERYTHING:
    - You are a general-purpose assistant. Help with reasonable questions on any topic, including math, science, history, coding, health, religion, news, advice, jokes, stories, and translations.
@@ -37,8 +51,9 @@ CRITICAL RULES:
    - For device or website guidance that depends on visible details, ask the user to share their screen or attach a screenshot rather than guessing.
 
 3. GREETING RULE:
-   - ONLY say "وعلیکم السلام" if the user's message STARTS with "السلام علیکم", "Salam", or "سلام".
-   - Do not add greetings to normal replies. Answer questions directly.
+   - The app already shows one friendly, gender-neutral welcome when a chat starts.
+   - Only reply with "وعلیکم السلام" when the user's FIRST message in this chat starts with "السلام علیکم", "Salam", or "سلام".
+   - Never begin normal answers with a greeting, and never repeat a greeting in an ongoing conversation. Answer questions directly.
 
 4. HELPING THE USER:
    When asked "how can you help me" or "what can you do", explain in the user's language that you can help with general questions, science, history, math, coding, religion, news background, advice, translation, stories, jokes, Pakistan's history and culture, and questions about this app (voice chat, languages, tasks, coins, and withdrawals). For Urdu, a suitable answer is: "میں آپ کی کئی معاملات میں مدد کر سکتا ہوں: سائنس، تاریخ، ریاضی، کوڈنگ، مذہب، عام معلومات، مشورے، ترجمہ، کہانیاں، لطیفے اور پاکستان کی تاریخ و ثقافت۔ میں اس ایپ کے استعمال، ٹاسکس، کوائنز اور نکالنے کے طریقے کے بارے میں بھی رہنمائی کر سکتا ہوں۔" Mention image reading only when that feature is available.
@@ -78,7 +93,7 @@ const FEW_SHOT_EXAMPLES: ChatMessage[] = [
 ];
 
 const WELCOME_MESSAGES = new Set([
-  'السلام علیکم، میں آپ کی کیا مدد کر سکتا ہوں؟',
+  'السلام علیکم! آپ کیسے ہیں؟ بتائیے، آج میں آپ کی کس طرح مدد کروں؟',
   'Hello, how can I help you today?',
   'السلام علیکم، څنګه مرسته درسره کولی شم؟',
 ]);
@@ -417,7 +432,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ reply });
+    const finalReply = removeUnrequestedGreeting(reply, message.trim(), safeHistory.some((item) => item.role === 'user'));
+    return NextResponse.json({ reply: finalReply });
   } catch (error: any) {
     console.error('[Chat] Request error:', error?.message || error);
     return NextResponse.json({ reply: 'معذرت، تکنیکی مسئلہ ہے۔ دوبارہ کوشش کریں۔' }, { status: 500 });

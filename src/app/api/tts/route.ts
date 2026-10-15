@@ -11,6 +11,16 @@ const VOICES: Record<string, string> = {
   'ps-AF': 'ps-AF-GulNawazNeural',
 };
 
+function normalizeUrduSpeech(text: string) {
+  return text
+    .normalize('NFC')
+    .replace(/\u0640/gu, '')
+    .replace(/[\u064A\u0649]/gu, 'ی')
+    .replace(/\u0643/gu, 'ک')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
 export async function POST(request: NextRequest) {
   let payload: unknown;
   try {
@@ -31,14 +41,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Text is too long for speech synthesis' }, { status: 413 });
   }
 
-  const requestedLanguage = typeof language === 'string' ? language : 'en-US';
-  const voice = VOICES[requestedLanguage] ?? VOICES['en-US'];
+  const requestedLanguage = typeof language === 'string' && Object.prototype.hasOwnProperty.call(VOICES, language) ? language : 'en-US';
+  const voice = VOICES[requestedLanguage];
+  const speechText = requestedLanguage === 'ur-PK' ? normalizeUrduSpeech(text) : text.trim();
+  const rate = requestedLanguage === 'ur-PK' ? '-8%' : '-5%';
+  const pitch = requestedLanguage === 'ur-PK' ? '0Hz' : '-2Hz';
 
   try {
     const tts = new EdgeTTS();
-    await tts.synthesize(text.trim(), voice, {
-      rate: '-5%',
-      pitch: '-2Hz',
+    await tts.synthesize(speechText, voice, {
+      rate,
+      pitch,
       outputFormat: 'audio-24khz-96kbitrate-mono-mp3',
       timeout: 30_000,
     });

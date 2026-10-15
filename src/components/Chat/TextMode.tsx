@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowLeft, Menu } from 'lucide-react';
-import Logo from '@/components/Brand/Logo';
+import AnimatedLogo from '@/components/Brand/AnimatedLogo';
 import ChatInterface from '@/components/Chat/ChatInterface';
 import LanguageSelector from '@/components/Chat/LanguageSelector';
 
@@ -34,11 +34,10 @@ export default function TextMode({
 }) {
   return (
     <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-gradient-to-b from-sky-50 to-white">
-      <header className="z-20 flex h-14 shrink-0 items-center justify-between border-b border-gray-100 bg-white px-2 shadow-sm sm:px-4">
+      <header className="z-20 flex h-[4.5rem] shrink-0 items-center justify-between border-b border-gray-100 bg-white/95 px-2 shadow-sm backdrop-blur sm:px-4">
         <div className="flex items-center gap-1.5">
           <button type="button" onClick={onOpenHistory} aria-label="Open chat history" className="rounded-full p-2 text-gray-700 hover:bg-gray-100"><Menu size={21} /></button>
-          <Logo size="sm" />
-          <span className="text-lg font-bold text-gray-800">Me AI</span>
+          <AnimatedLogo size="sm" />
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
           <LanguageSelector current={currentLanguage} onChange={onLanguageChange} />
