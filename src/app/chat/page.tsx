@@ -4,10 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
+import { Camera } from 'lucide-react';
+import CameraStudio, { type CameraCommand } from '@/components/Chat/CameraStudio';
 import ChatSidebar from '@/components/Chat/ChatSidebar';
 import ScreenShareButton from '@/components/Chat/ScreenShareButton';
 import TextMode from '@/components/Chat/TextMode';
 import VoiceDashboard from '@/components/Chat/VoiceDashboard';
+import WelcomeScreen from '@/components/Chat/WelcomeScreen';
 import { isBackgroundAudioEnabled } from '@/lib/audioSession';
 import { loadPreferences, savePreferences, type AppPreferences, type NoiseFilterLevel } from '@/lib/preferences';
 import { createSpeechRecognition, type SpeechRecognitionInstance } from '@/lib/speech/speechToText';
@@ -16,16 +19,17 @@ import { VoiceActivityDetector } from '@/lib/speech/voiceActivityDetector';
 import { createClient } from '@/lib/supabase/client';
 
 type Message = { role: 'user' | 'assistant'; content: string; imageUrl?: string; imageUrls?: string[] };
-type ChatMode = 'voice' | 'text';
+type ChatMode = 'welcome' | 'voice' | 'text';
 
-const WELCOME_MESSAGE = 'السلام علیکم! آپ کیسے ہیں؟ بتائیے، آج میں آپ کی کس طرح مدد کروں؟';
+const WELCOME_MESSAGE = 'السلام علیکم، میں می اے آئی ہوں۔ آپ کیسے ہیں؟ میں آپ کی کس طرح مدد کر سکتا ہوں؟';
 const WELCOME_MESSAGES: Record<string, string> = {
   'ur-PK': WELCOME_MESSAGE,
   'en-US': 'Hello, how can I help you today?',
   'ps-AF': 'السلام علیکم، څنګه مرسته درسره کولی شم؟',
 };
 const WELCOME_CONTENTS = new Set(Object.values(WELCOME_MESSAGES));
-const IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+const CHAT_SESSION_KEY = 'me-ai.active-chat.v1';
+const CHAT_SESSION_ENDED_KEY = 'me-ai.active-chat-ended';
 
 function detectMessageLanguage(text: string, preferredLanguage: string): string {
   if (!text.trim()) return preferredLanguage;
@@ -78,18 +82,24 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeakingState] = useState(false);
-  const [mode, setMode] = useState<ChatMode>('voice');
+  const [mode, setMode] = useState<ChatMode>('welcome');
+  const [sessionReady, setSessionReady] = useState(false);
   const [avatarPhoto] = useState('/avatar/avatar-photo.jpg');
   const [currentLanguage, setCurrentLanguage] = useState('ur-PK');
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [noiseFilterLevel, setNoiseFilterLevel] = useState<NoiseFilterLevel>('medium');
   const [imagePickerPending, setImagePickerPending] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraCommand, setCameraCommand] = useState<CameraCommand | null>(null);
   const [character, setCharacter] = useState('danyal');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
+  const sessionRestoreAttemptedRef = useRef(false);
+  const cameraOpenRef = useRef(false);
+  const cameraCommandIdRef = useRef(0);
   const messageImageUrlsRef = useRef(new Set<string>());
   const screenSharingRef = useRef(false);
   const screenFrameRef = useRef<string | null>(null);
@@ -108,11 +118,11 @@ export default function ChatPage() {
   const characterRef = useRef(character);
   const autoListenTimerRef = useRef<number | null>(null);
   const interruptRetryTimerRef = useRef<number | null>(null);
-  const inactivityTimerRef = useRef<number | null>(null);
-  const modeRef = useRef<ChatMode>('voice');
+  const modeRef = useRef<ChatMode>('welcome');
   const isSpeakingRef = useRef(false);
   const voiceEnabledRef = useRef(true);
   const autoListenEnabledRef = useRef(true);
+  const voiceToneRef = useRef<AppPreferences['voiceTone']>('deep');
   const spokenTextRef = useRef('');
   const chatGenerationRef = useRef(0);
   const router = useRouter();
@@ -143,6 +153,7 @@ export default function ChatPage() {
     setCurrentLanguage(preferences.language);
     setVoiceEnabled(preferences.voiceEnabled);
     setNoiseFilterLevel(preferences.noiseFilterLevel);
+    voiceToneRef.current = preferences.voiceTone;
     voiceEnabledRef.current = preferences.voiceEnabled;
     autoListenEnabledRef.current = preferences.autoListen;
     currentLanguageRef.current = preferences.language;
@@ -228,13 +239,6 @@ export default function ChatPage() {
     }
   }
 
-  function clearInactivityTimer() {
-    if (inactivityTimerRef.current !== null) {
-      window.clearTimeout(inactivityTimerRef.current);
-      inactivityTimerRef.current = null;
-    }
-  }
-
   function revokeMessageImageUrls() {
     messageImageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     messageImageUrlsRef.current.clear();
@@ -255,7 +259,11 @@ export default function ChatPage() {
       const fullText = `${finalTranscriptRef.current} ${interimTranscriptRef.current}`.replace(/\s+/g, ' ').trim();
       if (fullText.length <= 2) return;
       stopVoiceRecognition();
-      void handleSend(fullText);
+      if (runCameraVoiceCommand(fullText)) {
+        if (modeRef.current === 'voice' && autoListenEnabledRef.current) scheduleAutoListen();
+      } else {
+        void handleSend(fullText, [], currentLanguageRef.current);
+      }
     }, 2_000);
   }
 
@@ -272,6 +280,7 @@ export default function ChatPage() {
     void speak({
       text,
       language,
+      voiceTone: voiceToneRef.current,
       onStart: () => {
         updateIsSpeaking(true);
         startVoiceRecognition(true);
@@ -297,7 +306,6 @@ export default function ChatPage() {
 
   function createFreshChat(options?: { greet?: boolean; mode?: ChatMode; notify?: boolean }) {
     chatGenerationRef.current += 1;
-    clearInactivityTimer();
     cancelAutoListen();
     cancelInterruptRetry();
     cancelSilenceTimer();
@@ -314,18 +322,10 @@ export default function ChatPage() {
     modeRef.current = nextMode;
     setMode(nextMode);
     const greeting = WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE;
-    setMessages(options?.greet ? [{ role: 'assistant', content: greeting }] : []);
+    setMessages(options?.greet && nextMode !== 'welcome' ? [{ role: 'assistant', content: greeting }] : []);
 
     if (options?.greet && nextMode === 'voice') speakText(greeting, true);
     if (options?.notify) toast.success('نیا چیٹ شروع ہو گیا');
-  }
-
-  function resetInactivityTimer() {
-    clearInactivityTimer();
-    inactivityTimerRef.current = window.setTimeout(() => {
-      inactivityTimerRef.current = null;
-      createFreshChat({ greet: true, notify: true });
-    }, IDLE_TIMEOUT_MS);
   }
 
   async function ensureConversation(userId: string, language: string, generation: number) {
@@ -356,7 +356,6 @@ export default function ChatPage() {
   async function loadConversation(conversationId: string, language?: string | null) {
     if (!user) return;
     const generation = ++chatGenerationRef.current;
-    clearInactivityTimer();
     cancelAutoListen();
     cancelInterruptRetry();
     cancelSilenceTimer();
@@ -388,7 +387,6 @@ export default function ChatPage() {
         currentLanguageRef.current = language;
         savePreferences({ ...loadPreferences(), language });
       }
-      resetInactivityTimer();
       modeRef.current = 'text';
       setMode('text');
     } catch (error) {
@@ -424,7 +422,6 @@ export default function ChatPage() {
       cancelAutoListen();
       cancelInterruptRetry();
       cancelSilenceTimer();
-      clearInactivityTimer();
       stopSpeaking();
       listenRequestedRef.current = false;
       recognitionRef.current?.stop();
@@ -436,12 +433,89 @@ export default function ChatPage() {
   }, [router]);
 
   useEffect(() => {
-    if (!user || welcomeShownRef.current || messages.length > 0) return;
+    if (!user || sessionRestoreAttemptedRef.current) return;
+    sessionRestoreAttemptedRef.current = true;
+    try {
+      const sessionEnded = window.sessionStorage.getItem(CHAT_SESSION_ENDED_KEY) === '1';
+      const raw = window.sessionStorage.getItem(CHAT_SESSION_KEY);
+      window.sessionStorage.removeItem(CHAT_SESSION_ENDED_KEY);
+      if (sessionEnded) {
+        window.sessionStorage.removeItem(CHAT_SESSION_KEY);
+      } else if (raw) {
+        const saved = JSON.parse(raw) as { userId?: unknown; messages?: unknown; conversationId?: unknown; mode?: unknown };
+        if (saved.userId === user.id && Array.isArray(saved.messages)) {
+          const restored = saved.messages
+            .filter((item): item is { role: 'user' | 'assistant'; content: string } =>
+              typeof item === 'object' && item !== null &&
+              ((item as { role?: unknown }).role === 'user' || (item as { role?: unknown }).role === 'assistant') &&
+              typeof (item as { content?: unknown }).content === 'string',
+            )
+            .slice(-100)
+            .map((item) => ({ role: item.role, content: item.content }));
+          if (restored.length) {
+            welcomeShownRef.current = true;
+            messagesRef.current = restored;
+            setMessages(restored);
+          }
+          if (typeof saved.conversationId === 'string') {
+            conversationIdRef.current = saved.conversationId;
+            setCurrentConversationId(saved.conversationId);
+          }
+          const restoredMode: ChatMode = saved.mode === 'voice' || saved.mode === 'text' ? saved.mode : 'welcome';
+          modeRef.current = restoredMode;
+          setMode(restoredMode);
+        } else {
+          window.sessionStorage.removeItem(CHAT_SESSION_KEY);
+        }
+      }
+    } catch (error) {
+      console.warn('Could not restore the active chat session:', error);
+      window.sessionStorage.removeItem(CHAT_SESSION_KEY);
+    }
+    setSessionReady(true);
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !sessionReady) return;
+    try {
+      window.sessionStorage.setItem(CHAT_SESSION_KEY, JSON.stringify({
+        userId: user.id,
+        conversationId: currentConversationId,
+        mode,
+        language: currentLanguage,
+        messages: messages.slice(-60).map(({ role, content }) => ({ role, content: content.slice(0, 12_000) })),
+      }));
+    } catch (error) {
+      console.info('The active chat could not be stored for this tab:', error);
+    }
+  }, [currentConversationId, currentLanguage, messages, mode, sessionReady, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const markSessionEnded = () => {
+      try { window.sessionStorage.setItem(CHAT_SESSION_ENDED_KEY, '1'); } catch { /* Storage can be disabled. */ }
+    };
+    const startFreshAfterReturn = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      window.sessionStorage.removeItem(CHAT_SESSION_ENDED_KEY);
+      window.sessionStorage.removeItem(CHAT_SESSION_KEY);
+      createFreshChat({ greet: true, mode: 'welcome' });
+    };
+    window.addEventListener('pagehide', markSessionEnded);
+    window.addEventListener('pageshow', startFreshAfterReturn);
+    return () => {
+      window.removeEventListener('pagehide', markSessionEnded);
+      window.removeEventListener('pageshow', startFreshAfterReturn);
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !sessionReady || modeRef.current === 'welcome' || welcomeShownRef.current || messages.length > 0) return;
     welcomeShownRef.current = true;
     const greeting = WELCOME_MESSAGES[currentLanguage] ?? WELCOME_MESSAGE;
     setMessages([{ role: 'assistant', content: greeting }]);
     if (modeRef.current === 'voice') speakText(greeting, true, currentLanguage);
-  }, [user, messages.length, currentLanguage]);
+  }, [user, sessionReady, messages.length, currentLanguage]);
 
   function enterVoiceMode() {
     cancelAutoListen();
@@ -513,19 +587,22 @@ export default function ChatPage() {
   }
 
   async function handleLogout() {
-    clearInactivityTimer();
     cancelAutoListen();
     cancelInterruptRetry();
     stopSpeaking();
     stopVoiceRecognition();
+    try {
+      window.sessionStorage.removeItem(CHAT_SESSION_KEY);
+      window.sessionStorage.removeItem(CHAT_SESSION_ENDED_KEY);
+    } catch { /* Storage may be disabled by the browser. */ }
     await createClient().auth.signOut();
     router.replace('/login');
   }
 
-  async function handleSend(text: string, images: File[] = []) {
+  async function handleSend(text: string, images: File[] = [], languageOverride?: string) {
     const generation = chatGenerationRef.current;
     const cleanedText = text.trim();
-    const requestLanguage = detectMessageLanguage(cleanedText, currentLanguageRef.current);
+    const requestLanguage = languageOverride ?? detectMessageLanguage(cleanedText, currentLanguageRef.current);
     if (requestLanguage !== currentLanguageRef.current) changeLanguage(requestLanguage);
     const sharingAtSubmission = screenSharingRef.current;
     if (sharingAtSubmission && images.length > 7) {
@@ -569,7 +646,6 @@ export default function ChatPage() {
     imageUrls.forEach((url) => messageImageUrlsRef.current.add(url));
     setMessages((existing) => [...existing, userMessage]);
     setIsLoading(true);
-    resetInactivityTimer();
 
     try {
       const conversationId = user ? await ensureConversation(user.id, requestLanguage, generation) : null;
@@ -583,6 +659,7 @@ export default function ChatPage() {
           message: cleanedText,
           history: historyWithoutWelcome,
           language: requestLanguage,
+          languageLocked: Boolean(languageOverride),
           character: characterRef.current,
           images: imageDataUrls,
           screenMode: Boolean(screenFrameForRequest),
@@ -598,7 +675,6 @@ export default function ChatPage() {
       const assistantMessage: Message = { role: 'assistant', content: data.reply };
       setMessages((existing) => [...existing, assistantMessage]);
       if (user && conversationId) await saveMessage(user.id, conversationId, 'assistant', data.reply, requestLanguage);
-      resetInactivityTimer();
       if (modeRef.current === 'voice') speakText(data.reply, true, requestLanguage);
     } catch (error) {
       console.error('Chat request failed:', error);
@@ -743,6 +819,38 @@ export default function ChatPage() {
     startVoiceRecognition(false);
   }
 
+  function openCamera() {
+    cameraOpenRef.current = true;
+    setCameraOpen(true);
+  }
+
+  function closeCamera() {
+    cameraOpenRef.current = false;
+    setCameraOpen(false);
+  }
+
+  function runCameraVoiceCommand(text: string) {
+    const normalized = text.normalize('NFC').toLocaleLowerCase();
+    const stop = /\b(stop|finish|end)\b.{0,32}\b(record(?:ing)?|video)\b|(?:ریکارڈنگ|ویڈیو|ویډیو|ثبت).{0,24}(?:بند|ختم|روک|ودرول|بنده|کړه)/iu.test(normalized);
+    const photo = /\b(take|capture|snap)\b.{0,32}\b(photo|picture|selfie)\b|\b(photo|picture|selfie)\b.{0,24}\b(take|capture)\b|(?:تصویر|فوٹو|عکس|انځور).{0,24}(?:کھینچ|لے|لیں|لو|واخله|واخلئ|اخستل)/iu.test(normalized);
+    const record = /\b(start|begin|record)\b.{0,32}\b(video|record(?:ing)?)\b|\bvideo\b.{0,20}\b(start|record)\b|(?:ریکارڈنگ|ویڈیو|ویډیو).{0,24}(?:شروع|پیل|ریکارڈ|بنا|کرو|کر دو|ثبت|وکړه)/iu.test(normalized);
+    const action: CameraCommand['action'] | null = stop ? 'stop' : photo ? 'photo' : record ? 'record' : null;
+    if (!action) return false;
+
+    if (!cameraOpenRef.current) {
+      toast.error(currentLanguageRef.current === 'ur-PK'
+        ? 'پہلے Camera بٹن دبائیں اور اجازت دیں، پھر تصویر یا ویڈیو کا voice command دیں۔'
+        : currentLanguageRef.current === 'ps-AF'
+          ? 'لومړی د کامرې تڼۍ کېکاږئ او اجازه ورکړئ، بیا غږیز امر ووایئ.'
+          : 'Tap Camera and allow access first, then give the photo/video voice command.');
+      return true;
+    }
+
+    cameraCommandIdRef.current += 1;
+    setCameraCommand({ id: cameraCommandIdRef.current, action });
+    return true;
+  }
+
   function handleNewChat() {
     createFreshChat({ greet: true, mode: modeRef.current });
   }
@@ -755,6 +863,7 @@ export default function ChatPage() {
   return (
     <>
       <Toaster position="top-center" />
+      <CameraStudio open={cameraOpen} onClose={closeCamera} language={currentLanguage} command={cameraCommand} />
       {screenSharing && (
         <div role="status" aria-live="polite" className="fixed left-0 right-0 top-14 z-40 bg-red-600 px-3 py-2 text-center text-xs font-semibold text-white shadow sm:text-sm">
           <span aria-hidden="true" className="mr-2 animate-pulse">●</span>
@@ -765,29 +874,45 @@ export default function ChatPage() {
               : 'Screen sharing is active — one initial snapshot is analyzed; later snapshots are sent only with your messages.'}
         </div>
       )}
-      <div className="fixed right-4 z-40" style={{ bottom: 'calc(6.5rem + env(safe-area-inset-bottom, 0px))' }}>
-        <ScreenShareButton
-          onFrame={handleScreenFrame}
-          active={screenSharing}
-          language={currentLanguage}
-          onStart={handleScreenStart}
-          onStop={handleScreenStop}
-        />
-      </div>
+      {mode !== 'welcome' && (
+        <>
+          <div className="fixed right-4 z-40" style={{ bottom: 'calc(6.5rem + env(safe-area-inset-bottom, 0px))' }}>
+            <ScreenShareButton onFrame={handleScreenFrame} active={screenSharing} language={currentLanguage} onStart={handleScreenStart} onStop={handleScreenStop} />
+          </div>
+          <div className="fixed right-4 z-40" style={{ bottom: 'calc(10.8rem + env(safe-area-inset-bottom, 0px))' }}>
+            <button type="button" onClick={openCamera} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/70 bg-white/90 px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-md backdrop-blur hover:bg-amber-50 hover:text-amber-800" aria-label={currentLanguage === 'ur-PK' ? 'کیمرہ کھولیں' : currentLanguage === 'ps-AF' ? 'کامره پرانیزئ' : 'Open camera'}>
+              <Camera size={18} />{currentLanguage === 'ur-PK' ? 'کیمرہ' : currentLanguage === 'ps-AF' ? 'کامره' : 'Camera'}
+            </button>
+          </div>
+        </>
+      )}
       <ChatSidebar
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         currentConversationId={currentConversationId}
+        language={currentLanguage}
         onNewChat={handleNewChat}
         onSelectConversation={(id, language) => { void loadConversation(id, language); }}
       />
-      {mode === 'voice' ? (
+      {mode === 'welcome' ? (
+        <WelcomeScreen
+          language={currentLanguage}
+          onVoiceMode={enterVoiceMode}
+          onTextMode={enterTextMode}
+          onOpenHistory={() => setSidebarOpen(true)}
+          onSettings={() => router.push('/settings')}
+        />
+      ) : mode === 'voice' ? (
         <VoiceDashboard
           photoUrl={avatarPhoto}
           isSpeaking={isSpeaking}
           isListening={isListening}
           isLoading={isLoading}
-          statusText={isLoading ? 'Thinking…' : isSpeaking && isListening ? 'Speaking · listening for interruption' : isSpeaking ? 'Speaking…' : isListening ? 'Listening…' : 'Ready — tap to talk'}
+          statusText={currentLanguage === 'ur-PK'
+            ? isLoading ? 'جواب تیار ہو رہا ہے…' : isSpeaking && isListening ? 'بول رہا ہوں · آپ کی بات سن رہا ہوں' : isSpeaking ? 'بول رہا ہوں…' : isListening ? 'سن رہا ہوں…' : 'تیار ہوں — بات شروع کریں'
+            : currentLanguage === 'ps-AF'
+              ? isLoading ? 'ځواب چمتو کېږي…' : isSpeaking && isListening ? 'خبرې کوم · ستاسو غږ اورم' : isSpeaking ? 'خبرې کوم…' : isListening ? 'اورم…' : 'چمتو یم — خبرې پیل کړئ'
+              : isLoading ? 'Thinking…' : isSpeaking && isListening ? 'Speaking · listening for interruption' : isSpeaking ? 'Speaking…' : isListening ? 'Listening…' : 'Ready — tap to talk'}
           voiceEnabled={voiceEnabled}
           character={character}
           onCharacterChange={handleCharacterChange}

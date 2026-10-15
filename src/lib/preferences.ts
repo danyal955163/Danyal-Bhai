@@ -1,16 +1,19 @@
 export type AppPreferences = {
   language: string;
   voiceEnabled: boolean;
+  voiceTone: VoiceTone;
   backgroundMode: boolean;
   autoListen: boolean;
   noiseFilterLevel: NoiseFilterLevel;
 };
 
 export type NoiseFilterLevel = 'low' | 'medium' | 'high';
+export type VoiceTone = 'deep' | 'natural';
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
   language: 'ur-PK',
   voiceEnabled: true,
+  voiceTone: 'deep',
   backgroundMode: false,
   autoListen: true,
   noiseFilterLevel: 'medium',
@@ -31,6 +34,7 @@ export function loadPreferences(): AppPreferences {
         ? stored.language
         : DEFAULT_PREFERENCES.language,
       voiceEnabled: typeof stored.voiceEnabled === 'boolean' ? stored.voiceEnabled : DEFAULT_PREFERENCES.voiceEnabled,
+      voiceTone: stored.voiceTone === 'natural' || stored.voiceTone === 'deep' ? stored.voiceTone : DEFAULT_PREFERENCES.voiceTone,
       backgroundMode: typeof stored.backgroundMode === 'boolean' ? stored.backgroundMode : DEFAULT_PREFERENCES.backgroundMode,
       autoListen: typeof stored.autoListen === 'boolean' ? stored.autoListen : DEFAULT_PREFERENCES.autoListen,
       noiseFilterLevel: stored.noiseFilterLevel === 'low' || stored.noiseFilterLevel === 'high' || stored.noiseFilterLevel === 'medium'

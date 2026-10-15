@@ -123,6 +123,32 @@ body {
   mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
 }
 
+@keyframes home-orb-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(18px, -20px, 0) scale(1.08); }
+}
+
+@keyframes home-logo-orbit {
+  from { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.07); }
+  to { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes home-grid-shift {
+  0%, 100% { opacity: .22; }
+  50% { opacity: .42; }
+}
+
+.home-orb-one { animation: home-orb-drift 11s ease-in-out infinite; }
+.home-orb-two { animation: home-orb-drift 14s ease-in-out infinite reverse; }
+.home-logo-orbit { animation: home-logo-orbit 16s ease-in-out infinite; }
+.home-grid {
+  background-image: radial-gradient(rgba(184,130,24,.16) .7px, transparent .7px);
+  background-size: 26px 26px;
+  mask-image: linear-gradient(to bottom, transparent, black 16%, black 82%, transparent);
+  animation: home-grid-shift 8s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }

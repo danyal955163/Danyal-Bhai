@@ -14,22 +14,32 @@ type Conversation = {
 function makeTitle(text: string) {
   const normalized = text.trim().replace(/\s+/g, ' ');
   if (!normalized) return 'Chat';
-  return normalized.length > 40 ? `${normalized.slice(0, 40)}…` : normalized;
+  const topic = normalized.split(/(?<=[.!?؟۔])\s/u, 1)[0]?.trim() || normalized;
+  return topic.length > 52 ? `${topic.slice(0, 52)}…` : topic;
 }
+
+const LABELS: Record<string, { title: string; newChat: string; loading: string; signIn: string; loadError: string; empty: string }> = {
+  'ur-PK': { title: 'چیٹ کے موضوعات', newChat: 'نیا چیٹ', loading: 'چیٹس لوڈ ہو رہی ہیں…', signIn: 'محفوظ چیٹس دیکھنے کے لیے سائن اِن کریں۔', loadError: 'چیٹ ہسٹری لوڈ نہیں ہو سکی۔', empty: 'ابھی کوئی چیٹ نہیں' },
+  'ps-AF': { title: 'د خبرو موضوعات', newChat: 'نوې خبرې', loading: 'خبرې لوډ کېږي…', signIn: 'د خوندي خبرو د لیدلو لپاره ننوځئ.', loadError: 'د خبرو مخینه نه شوه لوډېدلای.', empty: 'تر اوسه هېڅ خبرې نشته' },
+  'en-US': { title: 'Chat topics', newChat: 'New chat', loading: 'Loading chats…', signIn: 'Sign in to view saved chats.', loadError: 'Could not load chat history.', empty: 'No chats yet' },
+};
 
 export default function ChatSidebar({
   open,
   onClose,
   currentConversationId,
+  language,
   onNewChat,
   onSelectConversation,
 }: {
   open: boolean;
   onClose: () => void;
   currentConversationId?: string | null;
+  language: string;
   onNewChat: () => void;
   onSelectConversation: (id: string, language?: string | null) => void;
 }) {
+  const labels = LABELS[language] ?? LABELS['en-US'];
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -106,7 +116,7 @@ export default function ChatSidebar({
       <button type="button" aria-label="Close chat history" className="fixed inset-0 z-40 cursor-default bg-black/45" onClick={onClose} />
       <aside aria-label="Chat history" className="fixed inset-y-0 left-0 z-50 flex w-[min(20rem,88vw)] flex-col bg-white shadow-2xl">
         <div className="flex h-14 items-center justify-between border-b px-4">
-          <div className="flex items-center gap-2 text-gray-800"><Menu size={18} /><h2 className="font-bold">Chats</h2></div>
+          <div className="flex items-center gap-2 text-gray-800"><Menu size={18} /><h2 className="font-bold">{labels.title}</h2></div>
           <button type="button" onClick={onClose} aria-label="Close chat history" className="rounded-full p-2 hover:bg-gray-100"><X size={18} /></button>
         </div>
         <button
@@ -114,15 +124,15 @@ export default function ChatSidebar({
           onClick={() => { onNewChat(); onClose(); }}
           className="m-3 flex items-center justify-center gap-2 rounded-xl bg-emerald-500 p-3 font-semibold text-white transition hover:bg-emerald-600"
         >
-          <Plus size={18} /> نیا چیٹ
+          <Plus size={18} /> {labels.newChat}
         </button>
         <div className="flex-1 overflow-y-auto px-3 pb-3">
           {loading ? (
-            <div className="flex items-center justify-center gap-2 py-8 text-sm text-gray-400"><LoaderCircle size={16} className="animate-spin" /> Loading chats…</div>
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-gray-400"><LoaderCircle size={16} className="animate-spin" /> {labels.loading}</div>
           ) : error ? (
-            <p className="mt-8 text-center text-sm text-gray-400">{error}</p>
+            <p className="mt-8 text-center text-sm text-gray-400">{error === 'Sign in to view saved chats.' ? labels.signIn : labels.loadError}</p>
           ) : conversations.length === 0 ? (
-            <p className="mt-8 text-center text-sm text-gray-400">ابھی کوئی چیٹ نہیں</p>
+            <p className="mt-8 text-center text-sm text-gray-400">{labels.empty}</p>
           ) : conversations.map((conversation) => (
             <button
               type="button"

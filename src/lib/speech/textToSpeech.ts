@@ -1,6 +1,7 @@
 export interface SpeakOptions {
   text: string;
   language?: string;
+  voiceTone?: 'deep' | 'natural';
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (error?: unknown) => void;
@@ -117,6 +118,7 @@ export function stopSpeaking(): void {
 export async function speak({
   text,
   language = 'ur-PK',
+  voiceTone = 'deep',
   onStart,
   onEnd,
   onError,
@@ -154,7 +156,7 @@ export async function speak({
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: chunk, language }),
+        body: JSON.stringify({ text: chunk, language, voiceTone }),
         signal: controller.signal,
       });
 

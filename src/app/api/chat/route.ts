@@ -42,7 +42,8 @@ const SYSTEM_PROMPT = `You are "Me AI" — a smart, friendly, helpful AI assista
 CRITICAL RULES:
 
 1. LANGUAGE: Detect the user's language from their latest message and reply ONLY in the required language, without mixing languages. Urdu script → Urdu in Urdu script. Pashto script → Pashto in Pashto script. Latin-script text → English, even when the Latin words are a transliteration of Urdu or Pashto. Follow any explicit per-request language instruction below.
-   - For Urdu, use natural, everyday Pakistani Urdu in Urdu script. Prefer familiar words, clear sentence breaks, and simple spoken phrasing; avoid unnecessarily formal Arabic/Persian wording and English mixing unless it is needed.
+   - For Urdu, use correct Urdu grammar and spelling, natural everyday Pakistani Urdu in Urdu script, clear sentence breaks, and simple spoken phrasing. Avoid Roman Urdu, awkward literal translations, unnecessarily formal Arabic/Persian wording, and English mixing unless needed.
+   - For Pashto, use grammatically correct Pashto in Pashto script. A manually selected language for a voice turn takes priority over script guessing.
 
 2. ANSWER EVERYTHING:
    - You are a general-purpose assistant. Help with reasonable questions on any topic, including math, science, history, coding, health, religion, news, advice, jokes, stories, and translations.
@@ -106,6 +107,52 @@ function imageUnavailableMessage(language: unknown) {
     return 'د انځور لوستل اوس مهال شتون نه لري. لږ وروسته بیا هڅه وکړئ.';
   }
   return 'تصاویر پڑھنے کی سہولت عارضی طور پر دستیاب نہیں۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔';
+}
+
+function localizedMessage(key: 'invalidImages' | 'tooManyImages' | 'invalidImage' | 'imagesTooLarge' | 'emptyMessage' | 'invalidFormat' | 'providersFailed' | 'technicalError', language: 'ur-PK' | 'en-US' | 'ps-AF') {
+  const messages: Record<typeof key, Record<'ur-PK' | 'en-US' | 'ps-AF', string>> = {
+    invalidImages: {
+      'ur-PK': 'تصاویر کا فارمیٹ درست نہیں ہے۔',
+      'en-US': 'The image list has an invalid format.',
+      'ps-AF': 'د انځورونو لېست ناسم دی.',
+    },
+    tooManyImages: {
+      'ur-PK': `ایک وقت میں زیادہ سے زیادہ ${MAX_IMAGES} تصاویر بھیجیں۔`,
+      'en-US': `Send no more than ${MAX_IMAGES} images at a time.`,
+      'ps-AF': `په یو ځل تر ${MAX_IMAGES} ډېر انځورونه مه لېږئ.`,
+    },
+    invalidImage: {
+      'ur-PK': 'تصویر کا فارمیٹ درست نہیں ہے۔',
+      'en-US': 'An image has an invalid format.',
+      'ps-AF': 'د انځور بڼه ناسمه ده.',
+    },
+    imagesTooLarge: {
+      'ur-PK': 'تصاویر مجموعی طور پر بہت بڑی ہیں۔ چھوٹی تصاویر یا کم تصاویر بھیجیں۔',
+      'en-US': 'The images are too large in total. Try smaller or fewer images.',
+      'ps-AF': 'انځورونه په ټوله کې ډېر لوی دي. واړه یا لږ انځورونه وکاروئ.',
+    },
+    emptyMessage: {
+      'ur-PK': 'کوئی پیغام لکھیں۔',
+      'en-US': 'Please enter a message.',
+      'ps-AF': 'مهرباني وکړئ یو پیغام ولیکئ.',
+    },
+    invalidFormat: {
+      'ur-PK': 'صرف JPG، PNG، WebP یا GIF تصویر بھیجیں۔',
+      'en-US': 'Please send a JPG, PNG, WebP, or GIF image.',
+      'ps-AF': 'JPG، PNG، WebP یا GIF انځور راولېږئ.',
+    },
+    providersFailed: {
+      'ur-PK': 'معذرت، تمام AI سروسز عارضی طور پر مصروف ہیں۔ چند لمحے بعد دوبارہ کوشش کریں۔',
+      'en-US': 'Sorry, all AI services are temporarily busy. Please try again in a moment.',
+      'ps-AF': 'بښنه غواړو، د AI ټول خدمتونه لنډمهاله بوخت دي. لږ وروسته بیا هڅه وکړئ.',
+    },
+    technicalError: {
+      'ur-PK': 'معذرت، تکنیکی مسئلہ ہے۔ دوبارہ کوشش کریں۔',
+      'en-US': 'Sorry, a technical error occurred. Please try again.',
+      'ps-AF': 'بښنه غواړو، تخنیکي ستونزه رامنځته شوه. بیا هڅه وکړئ.',
+    },
+  };
+  return messages[key][language];
 }
 
 const GROQ_MODELS = ['qwen/qwen3.8-27b'];
@@ -332,34 +379,38 @@ async function tryCloudflare(messages: ChatMessage[]): Promise<string | null> {
 }
 
 export async function POST(request: NextRequest) {
+  let responseLanguage: 'ur-PK' | 'en-US' | 'ps-AF' = 'ur-PK';
   try {
-    const { message, history, language, character, imageBase64, images: incomingImages, screenMode } = await request.json();
+    const { message, history, language, languageLocked, character, imageBase64, images: incomingImages, screenMode } = await request.json();
+    const selectedLanguage = language === 'ps-AF' ? 'ps-AF' : language === 'en-US' ? 'en-US' : 'ur-PK';
+    responseLanguage = selectedLanguage;
     const images: unknown = incomingImages === undefined
       ? imageBase64 === undefined ? [] : [imageBase64]
       : incomingImages;
 
     if (!Array.isArray(images)) {
-      return NextResponse.json({ reply: 'تصاویر کا فارمیٹ درست نہیں ہے۔' }, { status: 400 });
+      return NextResponse.json({ reply: localizedMessage('invalidImages', responseLanguage) }, { status: 400 });
     }
     if (images.length > MAX_IMAGES) {
-      return NextResponse.json({ reply: `ایک وقت میں زیادہ سے زیادہ ${MAX_IMAGES} تصاویر بھیجیں۔` }, { status: 400 });
+      return NextResponse.json({ reply: localizedMessage('tooManyImages', responseLanguage) }, { status: 400 });
     }
     if (images.some((image) => typeof image !== 'string')) {
-      return NextResponse.json({ reply: 'تصویر کا فارمیٹ درست نہیں ہے۔' }, { status: 400 });
+      return NextResponse.json({ reply: localizedMessage('invalidImage', responseLanguage) }, { status: 400 });
     }
     const imageDataUrls = images as string[];
     if (imageDataUrls.reduce((total, image) => total + image.length, 0) > MAX_TOTAL_IMAGE_CHARS) {
-      return NextResponse.json({ reply: 'تصاویر مجموعی طور پر بہت بڑی ہیں۔ چھوٹی تصاویر یا کم تصاویر بھیجیں۔' }, { status: 413 });
+      return NextResponse.json({ reply: localizedMessage('imagesTooLarge', responseLanguage) }, { status: 413 });
     }
     if (typeof message !== 'string' || (!message.trim() && imageDataUrls.length === 0)) {
-      return NextResponse.json({ reply: 'کوئی پیغام لکھیں' }, { status: 400 });
+      return NextResponse.json({ reply: localizedMessage('emptyMessage', responseLanguage) }, { status: 400 });
     }
 
-    const selectedLanguage = language === 'ps-AF' ? 'ps-AF' : language === 'en-US' ? 'en-US' : 'ur-PK';
     const containsArabicScript = /[\u0600-\u06FF]/u.test(message);
-    const replyLanguage = containsArabicScript
-      ? (/[ټډړځڅښږڼګ]/u.test(message) || selectedLanguage === 'ps-AF' ? 'ps-AF' : 'ur-PK')
-      : message.trim() ? 'en-US' : selectedLanguage;
+    const replyLanguage = languageLocked === true
+      ? selectedLanguage
+      : containsArabicScript
+        ? (/[ټډړځڅښږڼګ]/u.test(message) || selectedLanguage === 'ps-AF' ? 'ps-AF' : 'ur-PK')
+        : message.trim() ? 'en-US' : selectedLanguage;
     const languageInstruction = replyLanguage === 'ps-AF'
       ? ' Reply only in Pashto using Pashto script.'
       : replyLanguage === 'ur-PK'
@@ -368,7 +419,7 @@ export async function POST(request: NextRequest) {
 
     for (const image of imageDataUrls) {
       if (!/^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(image)) {
-        return NextResponse.json({ reply: 'صرف JPG، PNG، WebP یا GIF تصویر بھیجیں۔' }, { status: 400 });
+        return NextResponse.json({ reply: localizedMessage('invalidFormat', responseLanguage) }, { status: 400 });
       }
     }
 
@@ -427,15 +478,13 @@ export async function POST(request: NextRequest) {
 
     if (!reply) {
       console.error('[Chat] All AI providers failed');
-      return NextResponse.json({
-        reply: 'معذرت، تمام AI سروسز عارضی طور پر مصروف ہیں۔ چند لمحے بعد دوبارہ کوشش کریں۔',
-      });
+      return NextResponse.json({ reply: localizedMessage('providersFailed', responseLanguage) });
     }
 
     const finalReply = removeUnrequestedGreeting(reply, message.trim(), safeHistory.some((item) => item.role === 'user'));
     return NextResponse.json({ reply: finalReply });
   } catch (error: any) {
     console.error('[Chat] Request error:', error?.message || error);
-    return NextResponse.json({ reply: 'معذرت، تکنیکی مسئلہ ہے۔ دوبارہ کوشش کریں۔' }, { status: 500 });
+    return NextResponse.json({ reply: localizedMessage('technicalError', responseLanguage) }, { status: 500 });
   }
 }

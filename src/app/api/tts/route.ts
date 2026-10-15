@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Text is required' }, { status: 400 });
   }
 
-  const { text, language } = payload as { text?: unknown; language?: unknown };
+  const { text, language, voiceTone } = payload as { text?: unknown; language?: unknown; voiceTone?: unknown };
   if (typeof text !== 'string' || !text.trim()) {
     return NextResponse.json({ error: 'Text is required' }, { status: 400 });
   }
@@ -42,10 +42,11 @@ export async function POST(request: NextRequest) {
   }
 
   const requestedLanguage = typeof language === 'string' && Object.prototype.hasOwnProperty.call(VOICES, language) ? language : 'en-US';
+  const requestedTone = voiceTone === 'natural' ? 'natural' : 'deep';
   const voice = VOICES[requestedLanguage];
   const speechText = requestedLanguage === 'ur-PK' ? normalizeUrduSpeech(text) : text.trim();
-  const rate = requestedLanguage === 'ur-PK' ? '-8%' : '-5%';
-  const pitch = requestedLanguage === 'ur-PK' ? '0Hz' : '-2Hz';
+  const rate = requestedTone === 'deep' ? '-4%' : '-5%';
+  const pitch = requestedTone === 'deep' ? '-8Hz' : '-2Hz';
 
   try {
     const tts = new EdgeTTS();
