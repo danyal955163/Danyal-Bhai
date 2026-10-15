@@ -21,6 +21,16 @@ function normalizeUrduSpeech(text: string) {
     .trim();
 }
 
+function getSafeErrorDetails(error: unknown) {
+  if (typeof error !== 'object' || error === null) return { name: typeof error };
+  const details = error as Record<string, unknown>;
+  return {
+    name: typeof details.name === 'string' ? details.name.slice(0, 80) : 'UnknownError',
+    code: typeof details.code === 'string' ? details.code.slice(0, 80) : undefined,
+    status: typeof details.status === 'number' ? details.status : undefined,
+  };
+}
+
 export async function POST(request: NextRequest) {
   let payload: unknown;
   try {
@@ -71,7 +81,16 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[Edge-TTS] Synthesis failed:', error);
-    return NextResponse.json({ error: 'Edge-TTS speech synthesis failed' }, { status: 502 });
+    const requestId = request.headers.get('x-vercel-id') ?? request.headers.get('x-request-id') ?? 'unavailable';
+    console.error('[Edge-TTS] Synthesis failed', {
+      requestId,
+      language: requestedLanguage,
+      voice,
+      error: getSafeErrorDetails(error),
+    });
+    return NextResponse.json(
+      { error: 'Speech synthesis is temporarily unavailable' },
+      { status: 502, headers: { 'Cache-Control': 'no-store', 'X-Request-Id': requestId } },
+    );
   }
 }

@@ -18,6 +18,7 @@ let currentContext: AudioContext | null = null;
 let currentSource: AudioBufferSourceNode | null = null;
 let currentRequest: AbortController | null = null;
 let currentOutputLevelCleanup: (() => void) | null = null;
+let currentBrowserSpeechCancel: (() => void) | null = null;
 
 function stopOutputLevelMonitoring() {
   const cleanup = currentOutputLevelCleanup;
@@ -88,6 +89,84 @@ function isAbortError(error: unknown) {
   return error instanceof Error && error.name === 'AbortError';
 }
 
+function speakWithBrowserVoice({
+  text,
+  language,
+  voiceTone,
+  signal,
+  onStart,
+  onLevel,
+}: {
+  text: string;
+  language: string;
+  voiceTone: 'deep' | 'natural';
+  signal: AbortSignal;
+  onStart: () => void;
+  onLevel?: (level: number) => void;
+}): Promise<void> {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+    return Promise.reject(new Error('Device speech synthesis is unavailable'));
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const synthesis = window.speechSynthesis;
+    const utterance = new SpeechSynthesisUtterance(text);
+    const normalizedLanguage = language.toLowerCase().replace(/_/gu, '-');
+    const primaryLanguage = normalizedLanguage.split('-')[0];
+    const voices = synthesis.getVoices().filter((voice) => voice.lang.toLowerCase().replace(/_/gu, '-').split('-')[0] === primaryLanguage);
+    const maleVoiceHint = /\b(male|david|guy|mark|daniel|james|alex|asad|gulnawaz)\b/iu;
+    const selectedVoice = voices.find((voice) => voice.lang.toLowerCase().replace(/_/gu, '-') === normalizedLanguage && maleVoiceHint.test(voice.name))
+      ?? voices.find((voice) => voice.lang.toLowerCase().replace(/_/gu, '-') === normalizedLanguage)
+      ?? voices.find((voice) => maleVoiceHint.test(voice.name))
+      ?? voices[0];
+
+    utterance.lang = language;
+    utterance.rate = voiceTone === 'deep' ? 0.94 : 1;
+    utterance.pitch = voiceTone === 'deep' ? 0.92 : 1;
+    if (selectedVoice) utterance.voice = selectedVoice;
+
+    let settled = false;
+    const cleanup = () => {
+      utterance.onstart = null;
+      utterance.onend = null;
+      utterance.onerror = null;
+      signal.removeEventListener('abort', handleAbort);
+      if (currentBrowserSpeechCancel === cancel) currentBrowserSpeechCancel = null;
+      onLevel?.(0);
+    };
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const cancel = () => {
+      finish();
+      try { synthesis.cancel(); } catch { /* The browser speech queue may already be empty. */ }
+    };
+    const handleAbort = () => cancel();
+
+    utterance.onstart = () => onStart();
+    utterance.onend = () => finish();
+    utterance.onerror = (event) => {
+      if (signal.aborted || event.error === 'canceled' || event.error === 'interrupted') finish();
+      else finish(new Error(`Device speech playback failed (${event.error})`));
+    };
+    currentBrowserSpeechCancel = cancel;
+    signal.addEventListener('abort', handleAbort, { once: true });
+    if (signal.aborted) {
+      handleAbort();
+      return;
+    }
+    try {
+      synthesis.speak(utterance);
+    } catch (error) {
+      finish(error);
+    }
+  });
+}
+
 function splitSpeechText(text: string): string[] {
   const normalizedText = text.trim();
   if (!normalizedText) return [];
@@ -149,6 +228,9 @@ export function stopSpeaking(): void {
   const request = currentRequest;
   currentRequest = null;
   stopOutputLevelMonitoring();
+  const cancelBrowserSpeech = currentBrowserSpeechCancel;
+  currentBrowserSpeechCancel = null;
+  cancelBrowserSpeech?.();
 
   const audio = currentAudio;
   const audioUrl = currentAudioUrl;
@@ -214,21 +296,26 @@ export async function speak({
     for (const chunk of chunks) {
       if (controller.signal.aborted) return;
 
-      const response = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: chunk, language, voiceTone }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        const error = new Error(data.error || `Edge-TTS request failed (${response.status})`) as Error & { status?: number };
-        error.status = response.status;
-        throw error;
+      let audioData: ArrayBuffer;
+      try {
+        const response = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: chunk, language, voiceTone }),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Remote speech synthesis failed (${response.status})`);
+        if (!response.headers.get('content-type')?.toLowerCase().startsWith('audio/')) {
+          throw new Error('Remote speech response was not audio');
+        }
+        audioData = await response.arrayBuffer();
+        if (!audioData.byteLength) throw new Error('Remote speech response was empty');
+      } catch (requestError) {
+        if (controller.signal.aborted || isAbortError(requestError)) return;
+        console.info('[TTS] Remote speech unavailable; using the device voice fallback.');
+        await speakWithBrowserVoice({ text: chunk, language, voiceTone, signal: controller.signal, onStart: notifyStart, onLevel });
+        continue;
       }
-
-      const audioData = await response.arrayBuffer();
       if (controller.signal.aborted) return;
 
       let audioUrl: string | null = URL.createObjectURL(new Blob([audioData], { type: 'audio/mpeg' }));

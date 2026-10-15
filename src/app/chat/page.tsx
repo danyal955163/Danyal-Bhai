@@ -300,10 +300,12 @@ export default function ChatPage() {
         spokenTextRef.current = '';
         interruptMonitorRef.current = false;
         console.error('Edge-TTS voice is unavailable:', error);
-        const hasHttpStatus = typeof error === 'object' && error !== null && 'status' in error;
-        toast.error(hasHttpStatus
-          ? 'Edge-TTS نے error دیا۔ دوبارہ کوشش کریں یا deployment logs چیک کریں۔'
-          : 'آواز browser میں play نہیں ہو سکی۔ دوبارہ tap کر کے کوشش کریں۔');
+        const audioUnavailableMessage = language === 'ur-PK'
+          ? 'معذرت، آواز فی الحال دستیاب نہیں۔ جواب متن میں موجود ہے؛ دوبارہ کوشش کریں۔'
+          : language === 'ps-AF'
+            ? 'بښنه، غږ اوس مهال شتون نه لري. ځواب په متن کې شته؛ بیا هڅه وکړئ.'
+            : 'Sorry, audio is temporarily unavailable. The reply is still here in text; please try again.';
+        toast.error(audioUnavailableMessage);
         if (!listenRequestedRef.current && ((autoListen && autoListenEnabledRef.current) || cameraOpenRef.current)) scheduleAutoListen();
       },
     });

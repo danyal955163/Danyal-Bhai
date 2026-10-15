@@ -8,6 +8,9 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import AnimatedLogo from '@/components/Brand/AnimatedLogo';
 import { loadPreferences } from '@/lib/preferences';
+import { getAuthErrorMessage, getAuthMessage } from '@/lib/authErrorMessages';
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,16 +29,34 @@ export default function LoginPage() {
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setLoading(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      toast.error(error.message);
-      setLoading(false);
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      toast.error(getAuthMessage('emailRequired', uiLanguage));
       return;
     }
-    toast.success(copy.success);
-    router.push('/chat');
+    if (!EMAIL_PATTERN.test(normalizedEmail)) {
+      toast.error(getAuthMessage('emailInvalid', uiLanguage));
+      return;
+    }
+    if (!password) {
+      toast.error(getAuthMessage('passwordRequired', uiLanguage));
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await createClient().auth.signInWithPassword({ email: normalizedEmail, password });
+      if (error) {
+        toast.error(getAuthErrorMessage(error, uiLanguage, 'login'));
+        return;
+      }
+      toast.success(copy.success);
+      router.push('/chat');
+    } catch (error) {
+      toast.error(getAuthErrorMessage(error, uiLanguage, 'login'));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -43,8 +64,8 @@ export default function LoginPage() {
       <Toaster position="top-center" />
       <div className="mx-auto flex justify-center"><AnimatedLogo size="md" /></div>
       <div className="mt-5 text-center"><h1 className="text-3xl font-bold tracking-tight text-slate-900">{copy.title}</h1><p className="mt-2 text-sm text-slate-500">{copy.subtitle}</p></div>
-      <form onSubmit={handleLogin} className="mt-7 space-y-4">
-        <label className="block text-sm font-medium text-slate-700">{copy.email}<input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" /></label>
+      <form onSubmit={handleLogin} noValidate className="mt-7 space-y-4">
+        <label className="block text-sm font-medium text-slate-700">{copy.email}<input required type="email" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" /></label>
         <label className="block text-sm font-medium text-slate-700">{copy.password}<span className="relative mt-2 block"><input required type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={copy.passwordHint} className="w-full rounded-xl border border-slate-200 px-4 py-3 pr-12 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100" /><button type="button" aria-label={showPassword ? copy.hide : copy.show} onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></span></label>
         <div className="text-right"><Link href="#" className="text-sm font-medium text-emerald-600 hover:text-emerald-700">{copy.forgot}</Link></div>
         <button disabled={loading} type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3.5 font-semibold text-white shadow-lg shadow-emerald-200 transition hover:from-emerald-600 hover:to-teal-600 disabled:cursor-not-allowed disabled:opacity-70">{loading && <Loader2 size={18} className="animate-spin" />}{loading ? copy.loading : copy.login}</button>
