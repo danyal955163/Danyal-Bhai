@@ -85,7 +85,7 @@ export default function ChatPage() {
   const [aiLevel, setAiLevel] = useState(0);
   const [mode, setMode] = useState<ChatMode>('welcome');
   const [sessionReady, setSessionReady] = useState(false);
-  const [avatarPhoto] = useState('/avatar/avatar-photo.jpg');
+  const [avatarPhoto] = useState('/avatar/me-ai-owner.png');
   const [currentLanguage, setCurrentLanguage] = useState('ur-PK');
   const [uiLanguage, setUiLanguage] = useState('en-US');
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -256,9 +256,18 @@ export default function ChatPage() {
       finalTranscriptRef.current = '';
       interimTranscriptRef.current = '';
       if (fullText.length <= 1 || isLoadingRef.current) return;
-      if (!runCameraVoiceCommand(fullText)) {
-        void handleSend(fullText, [], currentLanguageRef.current);
+      if (runCameraVoiceCommand(fullText)) return;
+
+      const recognition = recognitionRef.current;
+      listenRequestedRef.current = false;
+      interruptMonitorRef.current = false;
+      cancelInterruptRetry();
+      if (recognition) {
+        try { recognition.stop(); } catch { /* Recognition may already be ending. */ }
       }
+      setIsListening(false);
+      setMicLevel(0);
+      void handleSend(fullText, [], currentLanguageRef.current);
     }, 2_000);
   }
 
@@ -279,7 +288,6 @@ export default function ChatPage() {
       onLevel: setAiLevel,
       onStart: () => {
         updateIsSpeaking(true);
-        startVoiceRecognition(true);
       },
       onEnd: () => {
         updateIsSpeaking(false);
@@ -660,6 +668,7 @@ export default function ChatPage() {
       if (generation !== chatGenerationRef.current) return;
       if (!response.ok || !data.reply) {
         toast.error(data.error ?? 'Failed to get a response');
+        if (modeRef.current === 'voice' && (autoListenEnabledRef.current || cameraOpenRef.current)) scheduleAutoListen();
         return;
       }
       const assistantMessage: Message = { role: 'assistant', content: data.reply };
@@ -669,6 +678,7 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Chat request failed:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to send message');
+      if (modeRef.current === 'voice' && (autoListenEnabledRef.current || cameraOpenRef.current)) scheduleAutoListen();
     } finally {
       if (generation === chatGenerationRef.current) {
         isLoadingRef.current = false;

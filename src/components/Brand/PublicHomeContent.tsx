@@ -9,10 +9,10 @@ export default function PublicHomeContent() {
   const [language, setLanguage] = useState('en-US');
   useEffect(() => setLanguage(loadPreferences().uiLanguage), []);
   const copy = language === 'ur-PK'
-    ? { tagline: 'آپ کا کثیر لسانی وائس اسسٹنٹ', description: 'اکاؤنٹ بنائیں اور AI سے بات چیت شروع کریں', signup: 'سائن اپ', login: 'لاگ اِن', copyright: '© 2026 دانیال بھائی' }
+    ? { tagline: 'آپ کا کثیر لسانی وائس اسسٹنٹ', description: 'اکاؤنٹ بنائیں اور AI سے بات چیت شروع کریں', signup: 'سائن اپ', login: 'لاگ اِن', copyright: '© 2026 Me AI' }
     : language === 'ps-AF'
-      ? { tagline: 'ستاسو څوژبی غږیز مرستیال', description: 'حساب جوړ کړئ او له AI سره خبرې پیل کړئ', signup: 'حساب جوړ کړئ', login: 'ننوتل', copyright: '© 2026 دانیال ورور' }
-      : { tagline: 'Your multilingual voice assistant', description: 'Sign up and start chatting with AI', signup: 'Sign Up', login: 'Login', copyright: '© 2026 Danyal Bhai' };
+      ? { tagline: 'ستاسو څوژبی غږیز مرستیال', description: 'حساب جوړ کړئ او له AI سره خبرې پیل کړئ', signup: 'حساب جوړ کړئ', login: 'ننوتل', copyright: '© 2026 Me AI' }
+      : { tagline: 'Your multilingual voice assistant', description: 'Sign up and start chatting with AI', signup: 'Sign Up', login: 'Login', copyright: '© 2026 Me AI' };
   const rtl = language === 'ur-PK' || language === 'ps-AF';
 
   return (
