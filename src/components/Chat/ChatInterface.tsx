@@ -10,6 +10,7 @@ export default function ChatInterface({
   messages,
   onSend,
   onVoiceInput,
+  onDeleteMessage,
   isListening,
   isLoading,
   language,
@@ -17,6 +18,7 @@ export default function ChatInterface({
   messages: Message[];
   onSend: (text: string, image?: File) => void;
   onVoiceInput: () => void;
+  onDeleteMessage: (index: number) => void;
   isListening: boolean;
   isLoading: boolean;
   language: string;
@@ -36,7 +38,7 @@ export default function ChatInterface({
           </div>
         )}
         {messages.map((message, index) => (
-          <ChatBubble key={`${message.role}-${index}`} {...message} />
+          <ChatBubble key={`${message.role}-${index}`} {...message} onDelete={() => onDeleteMessage(index)} />
         ))}
         {isLoading && (
           <div className="mb-3 flex justify-start">

@@ -76,7 +76,7 @@ export default function ChatInput({
       <div className="flex items-center gap-2 p-3">
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageSelect} className="hidden" />
         <button type="button" onClick={() => fileInputRef.current?.click()} disabled={disabled} aria-label="Attach image" title="Send image" className="rounded-full bg-gray-100 p-2.5 text-gray-600 hover:bg-gray-200 disabled:opacity-50"><ImagePlus size={18} /></button>
-        <button type="button" onClick={onVoiceInput} disabled={disabled} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`rounded-full p-2.5 ${isListening ? 'animate-pulse bg-red-500 text-white' : 'bg-gray-100 text-gray-600'} disabled:opacity-50`}><Mic size={18} /></button>
+        <button type="button" onClick={onVoiceInput} disabled={disabled} aria-label={isListening ? 'Stop listening' : 'Voice input'} className={`relative rounded-full p-2.5 ${isListening ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600'} disabled:opacity-50`}><Mic size={18} />{isListening && <span className="mic-waves" aria-hidden="true"><i /><i /><i /></span>}</button>
         <input
           id="chat-input"
           type="text"

@@ -14,6 +14,7 @@ export default function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
     >
       <span className="relative z-10 drop-shadow-md">M</span>
       <span aria-hidden="true" className="brand-logo-shine absolute left-[22%] top-[18%] h-[18%] w-[18%] rounded-full bg-white/70 blur-[1px]" />
+      <span aria-hidden="true" className="logo-ai-label absolute -bottom-3 left-1/2 -translate-x-1/2 text-[8px] font-black tracking-[0.2em] text-emerald-700">AI</span>
     </div>
   );
 }

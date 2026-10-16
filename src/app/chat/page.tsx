@@ -19,7 +19,7 @@ type SpeechRecognitionInstance = {
   lang: string;
   start: () => void;
   stop: () => void;
-  onresult: (event: { results: { [key: number]: { [key: number]: { transcript: string } } } }) => void;
+  onresult: (event: { results: { length: number; [key: number]: { [key: number]: { transcript: string } } } }) => void;
   onerror: (event: unknown) => void;
   onend: () => void;
 };
@@ -58,10 +58,14 @@ export default function ChatPage() {
   const [currentLanguage, setCurrentLanguage] = useState('ur-PK');
   const [character, setCharacter] = useState('danyal');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const autoListenTimerRef = useRef<number | null>(null);
+  const silenceTimerRef = useRef<number | null>(null);
+  const voiceTranscriptRef = useRef('');
+  const isSpeakingRef = useRef(false);
   const inactivityTimerRef = useRef<number | null>(null);
   const modeRef = useRef<ChatMode>('welcome');
   const chatGenerationRef = useRef(0);
@@ -71,6 +75,10 @@ export default function ChatPage() {
     if (autoListenTimerRef.current !== null) {
       window.clearTimeout(autoListenTimerRef.current);
       autoListenTimerRef.current = null;
+    }
+    if (silenceTimerRef.current !== null) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
     }
   }
 
@@ -86,20 +94,27 @@ export default function ChatPage() {
     autoListenTimerRef.current = window.setTimeout(() => {
       autoListenTimerRef.current = null;
       if (modeRef.current === 'voice') handleVoiceInput();
-    }, 800);
+    }, 1000);
   }
 
   function speakText(text: string, autoListen = false) {
     if (modeRef.current !== 'voice') return;
+    cancelAutoListen();
     void speak({
       text,
       language: currentLanguage,
-      onStart: () => setIsSpeaking(true),
+      onStart: () => {
+        isSpeakingRef.current = true;
+        setIsSpeaking(true);
+        if (autoListen) handleVoiceInput(true);
+      },
       onEnd: () => {
+        isSpeakingRef.current = false;
         setIsSpeaking(false);
-        if (autoListen) scheduleAutoListen();
+        if (autoListen && !recognitionRef.current) scheduleAutoListen();
       },
       onError: (error) => {
+        isSpeakingRef.current = false;
         setIsSpeaking(false);
         console.error('ElevenLabs male voice is unavailable:', error);
         const hasHttpStatus = typeof error === 'object' && error !== null && 'status' in error;
@@ -115,6 +130,7 @@ export default function ChatPage() {
     clearInactivityTimer();
     cancelAutoListen();
     stopSpeaking();
+    isSpeakingRef.current = false;
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     setIsSpeaking(false);
@@ -234,6 +250,7 @@ export default function ChatPage() {
       clearInactivityTimer();
       stopSpeaking();
       recognitionRef.current?.stop();
+      silenceTimerRef.current && window.clearTimeout(silenceTimerRef.current);
     };
   }, [router]);
 
@@ -299,6 +316,10 @@ export default function ChatPage() {
     const generation = chatGenerationRef.current;
     const cleanedText = text.trim();
     if (!cleanedText && !image) return;
+    if (cleanedText && handleOpenCameraCommand(cleanedText)) {
+      setCameraOpen(true);
+      return;
+    }
     let imageUrl: string | undefined;
     let imageBase64: string | undefined;
     if (image) {
@@ -358,34 +379,60 @@ export default function ChatPage() {
     }
   }
 
-  function handleVoiceInput() {
+  function handleVoiceInput(listenForInterrupt = false) {
     const speechWindow = window as SpeechWindow;
     const SpeechRecognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       toast.error('Voice input is not supported in this browser');
       return;
     }
+    if (recognitionRef.current) return;
 
+    voiceTranscriptRef.current = '';
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
-    recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.continuous = true;
+    recognition.interimResults = true;
     recognition.lang = currentLanguage;
     setIsListening(true);
     recognition.onresult = (event) => {
-      recognitionRef.current = null;
-      setIsListening(false);
-      void handleSend(event.results[0][0].transcript);
+      if (isSpeakingRef.current) {
+        stopSpeaking();
+        isSpeakingRef.current = false;
+        setIsSpeaking(false);
+      }
+      let transcript = '';
+      for (let index = 0; index < event.results.length; index += 1) {
+        transcript += event.results[index][0].transcript;
+      }
+      voiceTranscriptRef.current = transcript.trim();
+      if (silenceTimerRef.current !== null) window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = window.setTimeout(() => {
+        silenceTimerRef.current = null;
+        const text = voiceTranscriptRef.current.trim();
+        voiceTranscriptRef.current = '';
+        recognition.stop();
+        if (text) void handleSend(text);
+      }, 1000);
     };
     recognition.onerror = (event) => {
       console.error('Speech recognition error:', event);
       recognitionRef.current = null;
       setIsListening(false);
-      toast.error('Could not recognize voice');
+      if (!listenForInterrupt) toast.error('Could not recognize voice');
     };
     recognition.onend = () => {
-      recognitionRef.current = null;
+      if (recognitionRef.current === recognition) recognitionRef.current = null;
       setIsListening(false);
+      if (silenceTimerRef.current !== null) {
+        window.clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+      if (modeRef.current === 'voice' && isSpeakingRef.current === false && voiceTranscriptRef.current.trim()) {
+        const text = voiceTranscriptRef.current.trim();
+        voiceTranscriptRef.current = '';
+        void handleSend(text);
+      }
     };
     try {
       recognition.start();
@@ -393,8 +440,33 @@ export default function ChatPage() {
       console.error('Could not start speech recognition:', error);
       recognitionRef.current = null;
       setIsListening(false);
-      toast.error('Could not start voice input');
     }
+  }
+
+  function handleOpenCameraCommand(text: string) {
+    const normalized = text.toLowerCase().replace(/[.!?]/g, '').trim();
+    return normalized.includes('open camera') || normalized.includes('camera کھول') || normalized === 'camera';
+  }
+
+  async function handleDeleteMessage(index: number) {
+    const message = messages[index];
+    if (!message) return;
+    setMessages((existing) => existing.filter((_, messageIndex) => messageIndex !== index));
+    if (user && currentConversationId) {
+      const { error } = await createClient()
+        .from('messages')
+        .delete()
+        .eq('conversation_id', currentConversationId)
+        .eq('user_id', user.id)
+        .eq('role', message.role)
+        .eq('content', message.content);
+      if (error) {
+        console.error('Could not delete message from history:', error);
+        toast.error('Message removed here, but could not sync the history');
+        return;
+      }
+    }
+    toast.success('Message deleted from history');
   }
 
   function handleNewChat() {
@@ -427,7 +499,11 @@ export default function ChatPage() {
         <VoiceMode
           messages={messages}
           onSend={handleSend}
-          onVoiceInput={handleVoiceInput}
+          onVoiceInput={() => handleVoiceInput()}
+          onDeleteMessage={handleDeleteMessage}
+          cameraOpen={cameraOpen}
+          onOpenCamera={() => setCameraOpen(true)}
+          onCloseCamera={() => setCameraOpen(false)}
           isListening={isListening}
           isLoading={isLoading}
           isSpeaking={isSpeaking}
@@ -450,7 +526,8 @@ export default function ChatPage() {
         <TextMode
           messages={messages}
           onSend={handleSend}
-          onVoiceInput={handleVoiceInput}
+          onVoiceInput={() => handleVoiceInput()}
+          onDeleteMessage={handleDeleteMessage}
           isListening={isListening}
           isLoading={isLoading}
           currentLanguage={currentLanguage}
